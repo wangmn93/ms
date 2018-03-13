@@ -16,7 +16,7 @@ def unzip_gz(file_name):
     gz_file.close()
 
 
-def mnist_load(data_dir, dataset='train'):
+def mnist_load(data_dir, dataset='train', keep = None):
     """
     modified from https://gist.github.com/akesling/5358964
 
@@ -24,6 +24,9 @@ def mnist_load(data_dir, dataset='train'):
     1. [-1.0, 1.0] float64 images of shape (N * H * W)
     2. int labels of shape (N,)
     3. # of datas
+
+    modified by Mengnan WANG
+    extract subset of MNIST
     """
 
     if dataset is 'train':
@@ -49,7 +52,18 @@ def mnist_load(data_dir, dataset='train'):
         _, _, rows, cols = struct.unpack('>IIII', fimg.read(16))
         imgs = np.fromfile(fimg, dtype=np.uint8).reshape(len(lbls), rows, cols) / 127.5 - 1
 
-    return imgs, lbls, len(lbls)
+    if keep is None:
+        return imgs, lbls, len(lbls)
+    else:
+        X, Y = [], []
+        for x, y in zip(imgs, lbls):
+            if y in keep:
+                X.append(x)
+                Y.append(y)
+        X = np.array(X)
+        Y = np.array(Y)
+        return X, Y, len(Y)
+
 
 
 def mnist_download(download_dir):

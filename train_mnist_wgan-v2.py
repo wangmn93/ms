@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 import models_mnist as models
 import datetime
+import my_utils
 from tensorflow.examples.tutorials.mnist import input_data
 
 
@@ -24,19 +25,13 @@ gan_type="wgan"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+"/"
 
 ''' data '''
-
-# load MNIST
-mnist = input_data.read_data_sets("MNIST_data/", one_hot=True, reshape=[])
-# MNIST resize and normalization
-# train_set = mnist.train.images
-# train_set = (train_set - 0.5) / 0.5  # normalization; range: -1 ~ 1
-
-''' data '''
 # utils.mkdir('./data/mnist/')
 # data.mnist_download('./data/mnist')
-# imgs, _, _ = data.mnist_load('./data/mnist')
+# imgs, _, num_train_data = data.mnist_load('MNIST_data', keep=[0,9])
+# print("Total number of training data: "+num_train_data)
 # imgs.shape = imgs.shape + (1,)
 # data_pool = utils.MemoryData({'img': imgs}, batch_size)
+data_pool = my_utils.getDatapool(batch_size, keep=[0,9])
 
 """ graphs """
 
@@ -99,16 +94,19 @@ sess.run(tf.global_variables_initializer())
 ''' train '''
 try:
 
-    batch_epoch = mnist.train.num_examples // (batch_size * n_critic)
+    # batch_epoch = mnist.train.num_examples // (batch_size * n_critic)
+    batch_epoch = len(data_pool) // (batch_size * n_critic)
     max_it = epoch * batch_epoch
+
 
     for it in range(max_it):
 
         for i in range(n_critic):
             # batch data
-            real_ipt,_ = mnist.train.next_batch(batch_size)
+            # real_ipt,_ = mnist.train.next_batch(batch_size)
             # real_ipt = tf.image.resize_images(real_ipt, [32, 32]).eval()
-            real_ipt = (real_ipt-0.5)/0.5
+            # real_ipt = (real_ipt-0.5)/0.5
+            real_ipt = data_pool.batch('img')
             z_ipt = np.random.normal(size=[batch_size, z_dim])
             _ = sess.run([d_step], feed_dict={real: real_ipt, z: z_ipt})
 
@@ -119,9 +117,10 @@ try:
 
 
         if it%10 == 0 :
-            real_ipt,_ = mnist.train.next_batch(batch_size)
+            # real_ipt,_ = mnist.train.next_batch(batch_size)
             # real_ipt = tf.image.resize_images(real_ipt, [32,32]).eval()
-            real_ipt = (real_ipt - 0.5) / 0.5
+            # real_ipt = (real_ipt - 0.5) / 0.5
+            real_ipt = data_pool.batch('img')
             z_ipt = np.random.normal(size=[batch_size, z_dim])
             summary = sess.run(merged, feed_dict={real: real_ipt,z: z_ipt})
             writer.add_summary(summary, it)

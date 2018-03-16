@@ -14,58 +14,50 @@ from tensorflow.examples.tutorials.mnist import input_data
 
 
 """ param """
-epoch = 100
-batch_size = 64
-batch_size2 = 32
-lr = 0.000
-z_dim = 100
-beta = 1 #diversity hyper param
+epoch = 400
+batch_size = 128
+batch_size2 = 64
+lr = 0.001
+z_dim = 256
+beta = 0.125 #diversity hyper param
 # clip = 0.01
 n_critic = 1 #
 n_generator = 1
-gan_type="mgan_modified"
+gan_type="toy_mgan"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+"/"
 
 # restore = False
 # ckpt_dir =
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0, 9])
+mus = [[1, 10],[90, 100]]
+cov = [[0.001, 0], [0, 0.001]]
+data_pool = my_utils.getToyDatapool(batch_size,mus, cov, 30000)
 
 """ graphs """
-shared_generator = models.shared_generator
-g_shared_part = models.g_shared_part
-d_shared_part = models.d_shared_part
-shared_discriminator = models.shared_discriminator
-shared_classifier = models.shared_classifier
-optimizer = tf.train.AdamOptimizer
+generator = models.toy_generator
+discriminator = models.toy_discriminator
+optimizer = tf.train.GradientDescentOptimizer
 
 
 # inputs
-real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
+real = tf.placeholder(tf.float32, shape=[None, 2])
 z = tf.placeholder(tf.float32, shape=[None, z_dim])
 
 
 # generator
-temp = shared_generator(z, reuse=False, name="g1")
-temp2 = shared_generator(z, reuse=False, name="g2")
+fake1 = generator(z, reuse=False, name="g1")
+fake2 = generator(z, reuse=False, name="g2")
 
-fake = g_shared_part(temp, reuse=False)
-fake2 = g_shared_part(temp2)
+# discriminator
+r_logit = discriminator(real, reuse=False, name="d1")
+f1_logit = discriminator(fake1, name="d1")
+f2_logit = discriminator(fake2, name="d1")
 
-#results from shared part d
-r_temp = d_shared_part(real, reuse=False)
-f1_temp = d_shared_part(fake)
-f2_temp = d_shared_part(fake2)
 
-# dicriminator
-r_logit = shared_discriminator(r_temp, reuse=False)
-f1_logit = shared_discriminator(f1_temp)
-f2_logit = shared_discriminator(f2_temp)
-
-#classifier
-f1_c = shared_classifier(f1_temp, reuse=False)
-f2_c = shared_classifier(f2_temp)
+#supplement discriminator
+f1_c = discriminator(fake1, reuse=False, name="d2")
+f2_c = discriminator(fake2, name="d2")
 
 #losses
 # D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
@@ -73,40 +65,43 @@ f2_c = shared_classifier(f2_temp)
 # d_loss = D_loss_real + D_loss_fake
 #
 # g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.ones_like(f_logit)))
+
 #discriminator loss
 D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
-D_loss_fake1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.zeros_like(f1_logit)))
+D_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.zeros_like(f1_logit)))
 D_loss_fake2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.zeros_like(f2_logit)))
-d_loss = D_loss_real + D_loss_fake1 + D_loss_fake2
+d_loss = D_loss_real + D_loss_fake + D_loss_fake2
 
-#classifier loss
-C_loss_f1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_c, labels=tf.zeros_like(f1_c)))
-C_loss_f2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_c, labels=tf.ones_like(f2_c)))
-c_loss = C_loss_f1 + C_loss_f2
-# # D C loss
-d_c_loss = d_loss + C_loss_f1 + C_loss_f2
+#supplement discriminator loss
+D2_loss_f1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_c, labels=tf.zeros_like(f1_c)))
+D2_loss_f2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_c, labels=tf.ones_like(f2_c)))
+d2_loss = D2_loss_f1 + D2_loss_f2
 
 #generator loss
-g1_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.ones_like(f1_logit)))
-g2_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.ones_like(f2_logit)))
-# g1_loss += + beta*C_loss_f1
-# g2_loss += + beta*C_loss_f2
-g_loss = g1_loss + g2_loss + beta*(C_loss_f1+C_loss_f2)
+g_loss1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.ones_like(f1_logit)))
+g_loss2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.ones_like(f2_logit)))
+g_loss1 += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_c, labels=tf.zeros_like(f1_c)))
+g_loss2 += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_c, labels=tf.ones_like(f2_c)))
+# g2_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.ones_like(f2_logit)))
+# g_loss = g1_loss + g2_loss + d2_loss
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()
 
-d_shared_var = [var for var in T_vars if var.name.startswith('d_shared_part')]
-d_var = [var for var in T_vars if var.name.startswith('shared_discriminator')]
-c_var = [var for var in T_vars if var.name.startswith('shared_classifier')]
+d_var = [var for var in T_vars if var.name.startswith('d1')]
 
-g_shared_var = [var for var in T_vars if var.name.startswith('g_shared_part')]
-g1_var = [var for var in T_vars if var.name.startswith('g1')]
+d2_var = [var for var in T_vars if var.name.startswith('d2')]
+
+g_var = [var for var in T_vars if var.name.startswith('g1')]
+
 g2_var = [var for var in T_vars if var.name.startswith('g2')]
 
 # otpims
-d_c_step = optimizer(learning_rate=lr,beta1=0.5).minimize(d_c_loss, var_list=d_shared_var+d_var+c_var)
-g_step = optimizer(learning_rate=lr,beta1=0.5).minimize(-g_loss, var_list=g1_var+g2_var+g_shared_var)
+d_step = optimizer(learning_rate=lr).minimize(d_loss, var_list=d_var)
+d2_step = optimizer(learning_rate=lr).minimize(d2_loss, var_list=d2_var)
+g_step = optimizer(learning_rate=lr).minimize(g_loss1, var_list=g_var)
+g_step2 = optimizer(learning_rate=lr).minimize(g_loss2, var_list=g2_var)
+# g_step = optimizer(learning_rate=lr,beta1=0.5).minimize(g_loss, var_list=g1_var+g2_var)
 # g1_step = optimizer(learning_rate=lr,beta1=0.5).minimize(g1_loss, var_list=g1_var)
 # g2_step = optimizer(learning_rate=lr,beta1=0.5).minimize(g2_loss, var_list=g2_var)
 # d_step_ = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=d_var)
@@ -122,16 +117,19 @@ sess = tf.InteractiveSession()
 saver = tf.train.Saver(max_to_keep=5)
 # summary writer
 # Send summary statistics to TensorBoard
-tf.summary.scalar('G1_loss', g1_loss)
-tf.summary.scalar('G2_loss', g2_loss)
-tf.summary.scalar('G_loss', g_loss)
+tf.summary.scalar('G1_loss', g_loss1)
+tf.summary.scalar('G2_loss', g_loss2)
+# tf.summary.scalar('G2_loss', g2_loss)
+# tf.summary.scalar('G_loss', g_loss)
 tf.summary.scalar('Discriminator_loss', d_loss)
-tf.summary.scalar('Classifier_loss', c_loss)
-tf.summary.scalar('d_c_loss', d_c_loss)
-images_form_g1 = g_shared_part(shared_generator(z, name="g1", training=False), training=False)
-images_form_g2 = g_shared_part(shared_generator(z, name="g2", training=False), training=False)
-tf.summary.image('G1_images', images_form_g1, 10)
-tf.summary.image('G2_images', images_form_g2, 10)
+tf.summary.scalar('D2_loss', d2_loss)
+points_from_g = generator(z, name="g1")
+points_from_g2 = generator(z, name="g2")
+# images_form_g1 = generator(z, name="g1", training=False)
+# images_form_g2 = generator(z, name="g2", training=False)
+tf.summary.histogram('g1 points', points_from_g)
+tf.summary.histogram('g2 points', points_from_g2)
+# tf.summary.image('G2_images', images_form_g2, 12)
 merged = tf.summary.merge_all()
 logdir = dir+"tensorboard"
 writer = tf.summary.FileWriter(logdir, sess.graph)
@@ -155,20 +153,20 @@ try:
     for it in range(max_it):
 
         for i in range(n_critic):
-            real_ipt = data_pool.batch('img')
+            real_ipt = data_pool.batch('point')
             z_ipt = np.random.normal(size=[batch_size2, z_dim])
-            _ = sess.run([d_c_step], feed_dict={real: real_ipt, z: z_ipt})
+            _, _ = sess.run([d_step,d2_step], feed_dict={real: real_ipt, z: z_ipt})
 
 
         # train G
         for j in range(n_generator):
             z_ipt = np.random.normal(size=[batch_size2, z_dim])
             # _ = sess.run([g1_step], feed_dict={z: z_ipt})
-            _ = sess.run([g_step], feed_dict={z: z_ipt})
+            _, _ = sess.run([g_step, g_step2], feed_dict={z: z_ipt})
 
 
         if it%10 == 0 :
-            real_ipt = data_pool.batch('img')
+            real_ipt = data_pool.batch('point')
             z_ipt = np.random.normal(size=[batch_size2, z_dim])
             summary = sess.run(merged, feed_dict={real: real_ipt,z: z_ipt})
             writer.add_summary(summary, it)

@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 from matplotlib import pyplot as plt
 
-def getDatapool(batch_size, keep=None):
+def getMNISTDatapool(batch_size, keep=None):
     if keep is None:
         imgs, _, num_train_data = data.mnist_load('MNIST_data')
     else:
@@ -29,4 +29,14 @@ def getToyDataset(mus, cov, numberPerCluster):
     # plt.axis('equal')
     # plt.show()
     return X[1:]
+
+def getToyDatapool(batch_size, mus, cov, numberPerCluster):
+    X = getToyDataset(mus, cov, numberPerCluster)
+    print "Total number of training data: " + str(len(X))
+    data_pool = utils.MemoryData({'point':X}, batch_size)
+    return data_pool
+
+def saveSampleImgs(imgs, full_path, row, column):
+    utils.imwrite(utils.immerge(imgs, row, column),full_path)
+
 

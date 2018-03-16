@@ -36,7 +36,7 @@ if 0:
     print sess.run(onehot_labels)
 
 #generate toy data set
-if 1:
+if 0:
     mus = [[1,1],[5,5]]
     cov = [[1,0],[0,1]]
     # x,y = np.random.multivariate_normal(mu, sigma, 1000).T
@@ -48,3 +48,23 @@ if 1:
     # plt.plot(x2, y2, 'bx')
     plt.axis('equal')
     plt.show()
+
+#toy data_pool
+if 0:
+    mus = [[1, 1]]
+    cov = [[1, 0], [0, 1]]
+    data_pool = my_utils.getToyDatapool(10,mus, cov, 1000)
+    for _ in range(1):
+        x = data_pool.batch('point')
+        plt.plot(x[:, 0], x[:, 1], 'rx')
+        # plt.plot(x2, y2, 'bx')
+        plt.axis('equal')
+        plt.show()
+
+if 1:
+    var = raw_input("Continue training?")
+    print var
+    if var.lower() == 'y':
+        print 'y'
+    else:
+        print 'n'

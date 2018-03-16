@@ -63,12 +63,12 @@ def generator3(z, dim=64, reuse=True, training=True):
 
         return img
 
-def discriminator(img, dim=64, reuse=True, training=True):
+def discriminator(img, dim=64, reuse=True, training=True, name= 'discriminator'):
     bn = partial(batch_norm, is_training=training)
     conv_bn_lrelu = partial(conv, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
     fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
 
-    with tf.variable_scope('discriminator', reuse=reuse):
+    with tf.variable_scope(name, reuse=reuse):
         y = lrelu(conv(img, 1, 5, 2))
         y = conv_bn_lrelu(y, dim, 5, 2)
         y = fc_bn_lrelu(y, 1024)
@@ -87,18 +87,28 @@ def discriminator_wgan_gp(img, dim=64, reuse=True, training=True):
         logit = fc(y, 1)
         return logit
 
-# def g_shared_part(z, dim=64, reuse=True, training=True):
-#     bn = partial(batch_norm, is_training=training)
-#     dconv_bn_relu = partial(dconv, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
-#     fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
-#
-#     with tf.variable_scope('generator', reuse=reuse):
-#         y = fc_bn_relu(z, 1024)
-#         y = fc_bn_relu(y, 7 * 7 * dim * 2)
-#         y = tf.reshape(y, [-1, 7, 7, dim * 2])
-#         y = dconv_bn_relu(y, dim * 2, 5, 2)
-#         img = tf.tanh(dconv(y, 1, 5, 2))
-#         return img
+#weight sharing arch
+
+
+
+def g_shared_part(y, dim=64, reuse=True, training=True):
+    bn = partial(batch_norm, is_training=training)
+    dconv_bn_relu = partial(dconv, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+
+    with tf.variable_scope('g_shared_part', reuse=reuse):
+        y = fc_bn_relu(y, 7 * 7 * dim * 2)
+        y = tf.reshape(y, [-1, 7, 7, dim * 2])
+        y = dconv_bn_relu(y, dim * 2, 5, 2)
+        img = tf.tanh(dconv(y, 1, 5, 2))
+        return img
+
+def shared_generator(z, reuse=True, training = True, name="generator"):
+    bn = partial(batch_norm, is_training=training)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 1024)
+        return y
 
 def d_shared_part(img, dim=64, reuse=True, training=True):
     bn = partial(batch_norm, is_training=training)
@@ -118,3 +128,43 @@ def shared_classifier(y, reuse=True):
 def shared_discriminator(y, reuse=True):
     with tf.variable_scope('shared_discriminator', reuse=reuse):
         return fc(y, 1)
+
+
+#toy GAN
+def toy_generator(z, reuse=True, name = "generator"):
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_relu(z, 128)
+        y = fc_relu(y, 128)
+        return fc(y, 2)
+
+def toy_discriminator(x, reuse=True, name = "discriminator"):
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_relu(x, 128)
+        return fc(y, 1)
+
+#selective sampling
+def ss_generator(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 1024)
+        y = tf.tanh(fc(y, 784))
+        y = tf.reshape(y, [-1, 28, 28, 1])
+        return y
+
+def ss_discriminator(x, reuse=True, name = "discriminator"):
+    fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        y =  tf.reshape(x, [-1, 784])
+        y = fc_lrelu(y, 1024)
+        return fc(y, 1)
+
+def multi_c_discriminator(x, reuse=True, name = "discriminator"):
+    fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        y =  tf.reshape(x, [-1, 784])
+        y = fc_lrelu(y, 1024)
+        return fc(y, 3)

@@ -31,7 +31,7 @@ dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+"/
 # print("Total number of training data: "+num_train_data)
 # imgs.shape = imgs.shape + (1,)
 # data_pool = utils.MemoryData({'img': imgs}, batch_size)
-data_pool = my_utils.getDatapool(batch_size, keep=[0,9])
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0, 9])
 
 """ graphs """
 

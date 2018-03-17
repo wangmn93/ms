@@ -17,7 +17,7 @@ from tensorflow.examples.tutorials.mnist import input_data
 epoch = 100
 batch_size = 64
 batch_size2 = 32
-lr = 0.000
+lr = 0.0002
 z_dim = 100
 beta = 1 #diversity hyper param
 # clip = 0.01
@@ -84,14 +84,14 @@ C_loss_f1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_c, 
 C_loss_f2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_c, labels=tf.ones_like(f2_c)))
 c_loss = C_loss_f1 + C_loss_f2
 # # D C loss
-d_c_loss = d_loss + C_loss_f1 + C_loss_f2
+d_c_loss = d_loss + c_loss
 
 #generator loss
 g1_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.ones_like(f1_logit)))
 g2_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.ones_like(f2_logit)))
 # g1_loss += + beta*C_loss_f1
 # g2_loss += + beta*C_loss_f2
-g_loss = g1_loss + g2_loss + beta*(C_loss_f1+C_loss_f2)
+g_loss = g1_loss + g2_loss + beta*c_loss
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()
@@ -105,8 +105,8 @@ g1_var = [var for var in T_vars if var.name.startswith('g1')]
 g2_var = [var for var in T_vars if var.name.startswith('g2')]
 
 # otpims
-d_c_step = optimizer(learning_rate=lr,beta1=0.5).minimize(d_c_loss, var_list=d_shared_var+d_var+c_var)
-g_step = optimizer(learning_rate=lr,beta1=0.5).minimize(-g_loss, var_list=g1_var+g2_var+g_shared_var)
+d_c_step = optimizer(learning_rate=lr).minimize(d_c_loss, var_list=d_shared_var+d_var+c_var)
+g_step = optimizer(learning_rate=lr).minimize(g_loss, var_list=g1_var+g2_var+g_shared_var)
 # g1_step = optimizer(learning_rate=lr,beta1=0.5).minimize(g1_loss, var_list=g1_var)
 # g2_step = optimizer(learning_rate=lr,beta1=0.5).minimize(g2_loss, var_list=g2_var)
 # d_step_ = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=d_var)

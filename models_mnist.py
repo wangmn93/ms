@@ -162,9 +162,37 @@ def ss_discriminator(x, reuse=True, name = "discriminator"):
         y = fc_lrelu(y, 1024)
         return fc(y, 1)
 
+####
+def c_generator(z, label, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = tf.concat([z, label], 1)
+        y = fc_bn_relu(y, 1024)
+        y = tf.tanh(fc(y, 784))
+        y = tf.reshape(y, [-1, 28, 28, 1])
+        return y
+
+# def c_discriminator(x, label,reuse=True, name = "discriminator"):
+#     fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+#     with tf.variable_scope(name, reuse=reuse):
+#         y =  tf.reshape(x, [-1, 784])
+#         y = fc_lrelu(y, 1024)
+#         return fc(y, 1)
+
 def multi_c_discriminator(x, reuse=True, name = "discriminator"):
     fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
     with tf.variable_scope(name, reuse=reuse):
         y =  tf.reshape(x, [-1, 784])
+        y = fc_lrelu(y, 1024)
+        return fc(y, 3)
+
+#enlarge capacity of discriminator??
+def multi_c_discriminator2(x, reuse=True, name = "discriminator"):
+    fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = tf.reshape(x, [-1, 784])
+        y = fc_lrelu(y, 1024)
         y = fc_lrelu(y, 1024)
         return fc(y, 3)

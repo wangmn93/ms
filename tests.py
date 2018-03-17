@@ -30,8 +30,8 @@ if 0:
 #convert labels to one-hot
 if 0:
     sess = tf.InteractiveSession()
-    labels = [1,2,3]
-    depth = 10
+    labels = tf.scalar_mul(2,tf.ones([3], tf.int32))
+    depth = 3
     onehot_labels = tf.one_hot(indices=labels, depth=depth)
     print sess.run(onehot_labels)
 
@@ -61,7 +61,7 @@ if 0:
         plt.axis('equal')
         plt.show()
 
-if 1:
+if 0:
     var = raw_input("Continue training?")
     print var
     if var.lower() == 'y':

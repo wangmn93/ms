@@ -12,30 +12,28 @@ import my_utils
 
 
 """ param """
-epoch = 400
-batch_size = 128
-batch_size2 = 64
-lr = 0.001
+epoch = 100
+batch_size = 64
+lr = 0.0002
 z_dim = 100
 beta = 1 #diversity hyper param
 # clip = 0.01
 n_critic = 1 #
 n_generator = 1
-gan_type="selective_sampling"
+gan_type="mad-gan"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 np.random.seed(0)
 tf.set_random_seed(1234)
-
 # restore = False
 # ckpt_dir =
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0, 8])
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[1, 5])
 
 """ graphs """
 generator = models.ss_generator
-discriminator = models.ss_discriminator
+discriminator = models.multi_c_discriminator2
 optimizer = tf.train.AdamOptimizer
 
 
@@ -54,42 +52,43 @@ f1_logit = discriminator(fake, name="d1")
 f2_logit = discriminator(fake2, name="d1")
 
 #supplement discriminator
-f1_c = discriminator(fake, reuse=False, name="d2")
-f2_c = discriminator(fake2, name="d2")
+# f1_c = discriminator(fake, reuse=False, name="d2")
+# f2_c = discriminator(fake2, name="d2")
 
 #discriminator loss
-D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
-D_loss_fake1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.zeros_like(f1_logit)))
-D_loss_fake2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.zeros_like(f2_logit)))
+#since the shape of r_logit is (?,3) to create zeros of shape (?,1)
+#i use batch size
+# shape = tf.shape(r_logit)
+onehot_labels_zero = tf.one_hot(indices=tf.zeros(batch_size, tf.int32), depth=3)
+onehot_labels_one = tf.one_hot(indices=tf.ones(batch_size, tf.int32), depth=3)
+onehot_labels_two = tf.one_hot(indices=tf.cast(tf.scalar_mul(2,tf.ones(batch_size)), tf.int32), depth=3)
+# print(sess.run(tf.shape(onehot_labels_zero)))
+D_loss_real = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=r_logit, onehot_labels=onehot_labels_zero))
+D_loss_fake1 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f1_logit, onehot_labels=onehot_labels_one))
+D_loss_fake2 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f2_logit, onehot_labels=onehot_labels_two))
 d_loss = D_loss_real + D_loss_fake1 + D_loss_fake2
-# d_loss = D_loss_real + D_loss_fake1
-
-#supplement discriminator loss
-D2_loss_f1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_c, labels=tf.zeros_like(f1_c)))
-D2_loss_f2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_c, labels=tf.ones_like(f2_c)))
-d2_loss = D2_loss_f1 + D2_loss_f2
 
 #generator loss
-g1_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.ones_like(f1_logit)))
-g2_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.ones_like(f2_logit)))
-g1_loss += beta*D2_loss_f1
-g2_loss += beta*D2_loss_f2
+g1_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f1_logit, onehot_labels=onehot_labels_zero))
+g2_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f2_logit, onehot_labels=onehot_labels_zero))
+# g1_loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_c, labels=tf.zeros_like(f1_c)))
+# g2_loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_c, labels=tf.ones_like(f2_c)))
 g_loss = g1_loss + g2_loss
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()
 d_var = [var for var in T_vars if var.name.startswith('d1')]
-d2_var = [var for var in T_vars if var.name.startswith('d2')]
+# d2_var = [var for var in T_vars if var.name.startswith('d2')]
 g1_var = [var for var in T_vars if var.name.startswith('g1')]
 g2_var = [var for var in T_vars if var.name.startswith('g2')]
 
 # optims
 global_step = tf.Variable(0, name='global_step',trainable=False)
-d_step = optimizer(learning_rate=lr).minimize(d_loss, var_list=d_var, global_step=global_step)
-d2_step = optimizer(learning_rate=lr).minimize(d2_loss, var_list=d2_var)
-g_step = optimizer(learning_rate=lr).minimize(g1_loss, var_list=g1_var)
-g2_step = optimizer(learning_rate=lr).minimize(g2_loss, var_list=g2_var)
-G_step = optimizer(learning_rate=lr).minimize(g_loss, var_list=g1_var + g2_var)
+d_step = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=d_var, global_step=global_step)
+# d2_step = optimizer(learning_rate=lr).minimize(d2_loss, var_list=d2_var)
+g_step = optimizer(learning_rate=lr, beta1=0.5).minimize(g1_loss, var_list=g1_var)
+g2_step = optimizer(learning_rate=lr, beta1=0.5).minimize(g2_loss, var_list=g2_var)
+G_step = optimizer(learning_rate=lr, beta1=0.5).minimize(g_loss, var_list=g1_var + g2_var)
 """ train """
 ''' init '''
 # session
@@ -101,9 +100,9 @@ saver = tf.train.Saver(max_to_keep=5)
 # Send summary statistics to TensorBoard
 tf.summary.scalar('G1_loss', g1_loss)
 tf.summary.scalar('G2_loss', g2_loss)
-tf.summary.scalar('G_loss', g_loss)
+# tf.summary.scalar('G_loss', g_loss)
 tf.summary.scalar('Discriminator_loss', d_loss)
-tf.summary.scalar('Supplement_Discriminator_loss', d2_loss)
+# tf.summary.scalar('Supplement_Discriminator_loss', d2_loss)
 images_form_g1 = generator(z, name="g1", training= False)
 images_form_g2 = generator(z, name="g2", training= False)
 tf.summary.image('G1_images', images_form_g1, 12)
@@ -122,26 +121,30 @@ sess.run(tf.global_variables_initializer())
 ''' train '''
 batch_epoch = len(data_pool) // (batch_size * n_critic)
 max_it = epoch * batch_epoch
+print("lr:"+str(lr))
+print("batch size:"+str(batch_size))
+# print("lr:"+str(lr))
 def training(max_it, it_offset):
     print("Max iteration: " + str(max_it))
-    total_it = it_offset + max_it
+    # total_it = it_offset + max_it
     for it in range(it_offset, it_offset + max_it):
 
         for i in range(n_critic):
             real_ipt = data_pool.batch('img')
-            z_ipt = np.random.normal(size=[batch_size2, z_dim])
-            _, _ = sess.run([d_step, d2_step], feed_dict={real: real_ipt, z: z_ipt})
-            # _ = sess.run([d_step], feed_dict={real: real_ipt, z: z_ipt})
+            z_ipt = np.random.normal(size=[batch_size, z_dim])
+            _ = sess.run([d_step], feed_dict={real: real_ipt, z: z_ipt})
 
         # train G
         for j in range(n_generator):
-            z_ipt = np.random.normal(size=[batch_size2, z_dim])
-            # _, _ = sess.run([g_step,g2_step], feed_dict={z: z_ipt})
-            _ = sess.run([G_step], feed_dict={z: z_ipt})
+            z_ipt = np.random.normal(size=[batch_size, z_dim])
+            # _ = sess.run([g_step], feed_dict={z: z_ipt})
 
+            # z_ipt = np.random.normal(size=[batch_size, z_dim])
+            # _ = sess.run([g2_step], feed_dict={z: z_ipt})
+            _ = sess.run([G_step], feed_dict={z: z_ipt})
         if it%10 == 0 :
             real_ipt = data_pool.batch('img')
-            z_ipt = np.random.normal(size=[batch_size2, z_dim])
+            z_ipt = np.random.normal(size=[batch_size, z_dim])
             summary = sess.run(merged, feed_dict={real: real_ipt,z: z_ipt})
             writer.add_summary(summary, it)
 

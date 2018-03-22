@@ -13,7 +13,7 @@ dconv = partial(slim.conv2d_transpose, activation_fn=None, weights_initializer=t
 fc = partial(ops.flatten_fully_connected, activation_fn=None, weights_initializer=tf.random_normal_initializer(stddev=0.02))
 relu = tf.nn.relu
 lrelu = partial(ops.leak_relu, leak=0.2)
-batch_norm = partial(slim.batch_norm, decay=0.9, scale=True, epsilon=1e-5, updates_collections=None)
+batch_norm = partial(slim.batch_norm, decay=0.9, scale=True, epsilon=1e-5, updates_collections=None,)
 ln = slim.layer_norm
 
 
@@ -34,7 +34,7 @@ def generator(z, dim=64, reuse=True, training=True, name="generator"):
 def generator2(z, dim=64, reuse=True, training=True):
     bn = partial(batch_norm, is_training=training)
     dconv_bn_relu = partial(dconv, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
-    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu, biases_initializer=None)
 
     with tf.variable_scope('generator', reuse=reuse):
         y = ops.linear(z,1024,'gl1')
@@ -134,15 +134,41 @@ def shared_discriminator(y, reuse=True):
 def toy_generator(z, reuse=True, name = "generator"):
     fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
     with tf.variable_scope(name, reuse=reuse):
-        y = fc_relu(z, 128)
-        y = fc_relu(y, 128)
+        y = fc_relu(z, 1024)
+        y = fc_relu(y, 1024)
+        y = fc_relu(y, 512)
         return fc(y, 2)
 
 def toy_discriminator(x, reuse=True, name = "discriminator"):
     fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
     with tf.variable_scope(name, reuse=reuse):
         y = fc_relu(x, 128)
+        # y = fc_relu(y, 128)
         return fc(y, 1)
+
+def toy_transform(z, reuse=True, name = "transform"):
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_relu(z, 128)
+        y = fc_relu(y, 128)
+        return fc(y, 256)
+
+def toy_shared_generator(z, reuse=True, name = "generator"):
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_relu(z, 128)
+        y = fc_relu(y, 128)
+        # y = fc_relu(y, )
+        return fc(y, 2),fc(y, 2)
+
+def toy_shared_generator2(z, reuse=True, name = "generator"):
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_relu(z, 128)
+        y = fc_relu(y, 128)
+        # y = fc_relu(y, )
+        return fc(y, 2)
 
 #selective sampling
 def ss_generator(z, reuse=True, name = "generator", training = True):
@@ -155,14 +181,24 @@ def ss_generator(z, reuse=True, name = "generator", training = True):
         y = tf.reshape(y, [-1, 28, 28, 1])
         return y
 
-def ss_discriminator(x, reuse=True, name = "discriminator"):
+def ss_discriminator(x, label = None, reuse=True, name = "discriminator"):
     fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
     with tf.variable_scope(name, reuse=reuse):
         y =  tf.reshape(x, [-1, 784])
+        if label is not None:
+            y = tf.concat([y, label], 1)
         y = fc_lrelu(y, 1024)
         return fc(y, 1)
 
-####
+def transform_(z, reuse=True, name = "generator"):
+    # bn = partial(batch_norm, is_training=training)
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_relu(z, 256)
+        y = fc_relu(y, 100)
+        return y
+
+#### need to enlarge capacity??
 def c_generator(z, label, reuse=True, name = "generator", training = True):
     bn = partial(batch_norm, is_training=training)
     # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
@@ -170,9 +206,11 @@ def c_generator(z, label, reuse=True, name = "generator", training = True):
     with tf.variable_scope(name, reuse=reuse):
         y = tf.concat([z, label], 1)
         y = fc_bn_relu(y, 1024)
+        y = fc_bn_relu(y, 1024)
         y = tf.tanh(fc(y, 784))
         y = tf.reshape(y, [-1, 28, 28, 1])
         return y
+
 
 # def c_discriminator(x, label,reuse=True, name = "discriminator"):
 #     fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
@@ -188,7 +226,7 @@ def multi_c_discriminator(x, reuse=True, name = "discriminator"):
         y = fc_lrelu(y, 1024)
         return fc(y, 3)
 
-#enlarge capacity of discriminator??
+#enlarge capacity of discriminator
 def multi_c_discriminator2(x, reuse=True, name = "discriminator"):
     fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
     with tf.variable_scope(name, reuse=reuse):
@@ -196,3 +234,13 @@ def multi_c_discriminator2(x, reuse=True, name = "discriminator"):
         y = fc_lrelu(y, 1024)
         y = fc_lrelu(y, 1024)
         return fc(y, 3)
+
+def s_generator(z, reuse=True, name = "generator", part1 = "p1", part2 = "p2", training = True):
+    bn = partial(batch_norm, is_training=training)
+    # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 1024)
+        y = tf.tanh(fc(y, 784))
+        y = tf.reshape(y, [-1, 28, 28, 1])
+        return y

@@ -12,24 +12,24 @@ import my_utils
 
 
 """ param """
-epoch = 200
+epoch = 800
 batch_size = 128
 batch_size2 = 64
 lr = 0.0002
 z_dim = 100
-l_dim = 10
+l_dim = 1
 # beta = 1 #diversity hyper param
 # clip = 0.01
 n_critic = 1 #
 n_generator = 1
-gan_type="selective_sampling_cgan"
+gan_type="gmm_mgan"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 # restore = False
 # ckpt_dir =
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[1, 8])
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0, 7])
 
 """ graphs """
 generator = models.ss_generator
@@ -40,15 +40,20 @@ optimizer = tf.train.AdamOptimizer
 # inputs
 real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
 z = tf.placeholder(tf.float32, shape=[None, z_dim])
-mean1 = tf.placeholder(tf.float32, shape=())
-mean2 = tf.placeholder(tf.float32, shape=())
-# label = tf.placeholder(tf.float32, shape=[None, l_dim])
-# label2 = tf.placeholder(tf.float32, shape=[None, l_dim])
-# label3 = tf.placeholder(tf.float32, shape=[None, l_dim])
+
+# with tf.variable_scope("gmm", reuse=False):
+#     mean1 = tf.get_variable("mean1", [1], initializer=tf.constant_initializer(0.1))
+#     mean2 = tf.get_variable("mean2", [1], initializer=tf.constant_initializer(-0.1))
+#     log_sigma_sq1 = tf.get_variable("log_sigma_sq1", [1], initializer=tf.constant_initializer(0.2))
+#     log_sigma_sq2 = tf.get_variable("log_sigma_sq2", [1], initializer=tf.constant_initializer(0.1))
+
+
+z1 = models.transform_(z, reuse=False, name="cluster1")
+z2 = models.transform_(z, reuse=False, name="cluster2")
 
 # generator
-fake = generator(tf.add(z,mean1), reuse=False, name="g1")
-fake2 = generator(tf.add(z,mean2), name="g1")
+fake = generator(z1, reuse=False, name="g1")
+fake2 = generator(z2, name="g1")
 
 # discriminator
 r_logit = discriminator(real, reuse=False, name="d1")
@@ -86,33 +91,41 @@ T_vars = tf.trainable_variables()
 d_var = [var for var in T_vars if var.name.startswith('d1')]
 d2_var = [var for var in T_vars if var.name.startswith('d2')]
 g_var = [var for var in T_vars if var.name.startswith('g1')]
+gmm_var = [var for var in T_vars if var.name.startswith('cluster')]
 
 # optims
 global_step = tf.Variable(0, name='global_step',trainable=False)
 d_step = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=d_var, global_step=global_step)
 d2_step = optimizer(learning_rate=lr, beta1=0.5).minimize(d2_loss, var_list=d2_var)
-g_step = optimizer(learning_rate=lr, beta1=0.5).minimize(g_loss, var_list=g_var)
+g_step = optimizer(learning_rate=lr, beta1=0.5).minimize(g_loss, var_list=g_var+gmm_var)
 # g2_step = optimizer(learning_rate=lr).minimize(g2_loss, var_list=g_var)
 """ train """
 ''' init '''
 # session
-sess = tf.InteractiveSession()
+gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.333)
+# sess = tf.Session()
+sess = tf.InteractiveSession(config=tf.ConfigProto(gpu_options=gpu_options))
 
 # saver
 saver = tf.train.Saver(max_to_keep=5)
 # summary writer
 # Send summary statistics to TensorBoard
-tf.summary.scalar('G_loss_zero', g1_loss)
-tf.summary.scalar('G_loss_one', g2_loss)
+tf.summary.scalar('Cluster_1_loss', g1_loss)
+tf.summary.scalar('Cluster_2_loss', g2_loss)
 tf.summary.scalar('G_loss', g_loss)
 tf.summary.scalar('Discriminator_loss', d_loss)
-tf.summary.scalar('D2_loss', d2_loss)
-images_form_g1 = generator(tf.add(z,mean1), name="g1", training= False)
-images_form_g2 = generator(tf.add(z,mean2), name="g1", training= False)
+tf.summary.scalar('Supplement_Discriminator_loss', d2_loss)
+images_form_g1 = generator(z1, name="g1", training= False)
+images_form_g2 = generator(z2, name="g1", training= False)
 # images_form_g2 = generator(z, label2, name="g1", training= False)
 # images_form_g3 = generator(z, label3, name="g1", training= False)
-tf.summary.image('G_images_condition_on_zero', images_form_g1, 12)
-tf.summary.image('G_images_condition_on_one', images_form_g2, 12)
+# tf.summary.histogram('mean1', mean1)
+# tf.summary.histogram('mean2', mean2)
+# tf.summary.histogram('log_sigma_sq1', log_sigma_sq1)
+# tf.summary.histogram('log_sigma_sq2', log_sigma_sq2)
+
+tf.summary.image('cluster_1', images_form_g1, 12)
+tf.summary.image('cluster_2', images_form_g2, 12)
 # tf.summary.image('G_images_condition_on_two', images_form_g3, 12)
 merged = tf.summary.merge_all()
 logdir = dir+"/tensorboard"
@@ -132,27 +145,22 @@ def training(max_it, it_offset):
     print("Max iteration: " + str(max_it))
     # total_it = it_offset + max_it
     for it in range(it_offset, it_offset + max_it):
-        # label_zero = sess.run(tf.one_hot(indices=tf.zeros(batch_size2, tf.int32), depth=10))
-        # label_one = sess.run(tf.one_hot(indices=tf.ones(batch_size2, tf.int32), depth=10))
-        # label_two = sess.run(tf.one_hot(indices=tf.cast(tf.scalar_mul(2,tf.ones(batch_size2)), tf.int32), depth=10))
         for i in range(n_critic):
             real_ipt = data_pool.batch('img')
             z_ipt = np.random.normal(size=[batch_size2, z_dim])
-            # label_zero = tf.zeros([batch_size, 1], tf.int32)
-            # label_one = tf.ones([batch_size, 1], tf.int32)
-            _ = sess.run([d_step, d2_step], feed_dict={real: real_ipt, z: z_ipt, mean1:1., mean2:2. })
+            _ = sess.run([d_step, d2_step], feed_dict={real: real_ipt, z: z_ipt})
             # _ = sess.run([d_step], feed_dict={real: real_ipt, z: z_ipt, label: label_zero})
 
 
         # train G
         for j in range(n_generator):
             z_ipt = np.random.normal(size=[batch_size2, z_dim])
-            _ = sess.run([g_step], feed_dict={z: z_ipt, mean1: 1., mean2: 2.})
+            _ = sess.run([g_step], feed_dict={z: z_ipt})
 
         if it%10 == 0 :
             real_ipt = data_pool.batch('img')
             z_ipt = np.random.normal(size=[batch_size2, z_dim])
-            summary = sess.run(merged, feed_dict={real: real_ipt,z: z_ipt,mean1: 1., mean2: 2.})
+            summary = sess.run(merged, feed_dict={real: real_ipt,z: z_ipt})
             # summary = sess.run(merged, feed_dict={real: real_ipt, z: z_ipt, label: label_zero})
             writer.add_summary(summary, it)
 
@@ -176,7 +184,7 @@ finally:
         columns = 10
         label_zero = np.zeros((rows*columns, 1))
         label_one = np.ones((rows*columns, 1))
-        sample_imgs = sess.run(list_of_generators, feed_dict={z: np.random.normal(size=[rows*columns, z_dim]), mean1: 1., mean2: 2.})
+        sample_imgs = sess.run(list_of_generators, feed_dict={z: np.random.normal(size=[rows*columns, z_dim])})
         save_dir = dir + "/sample_imgs"
         utils.mkdir(save_dir + '/')
         for imgs,name in zip(sample_imgs,list_of_names):

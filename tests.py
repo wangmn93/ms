@@ -68,3 +68,15 @@ if 0:
         print 'y'
     else:
         print 'n'
+
+#custom init
+if 0:
+    sess = tf.Session()
+    with tf.variable_scope("gmm", reuse=False):
+        mu_1 = tf.get_variable("mean1", [2], initializer=tf.constant_initializer(0))
+        mu_2 = tf.get_variable("mean2", [2], initializer=tf.constant_initializer(1))
+        log_sigma_sq1 = tf.get_variable("log_sigma_sq1", [2], initializer=tf.constant_initializer(3))
+        log_sigma_sq2 = tf.get_variable("log_sigma_sq2", [2], initializer=tf.constant_initializer(4))
+    init_gmm = tf.initialize_variables([mu_1, mu_2, log_sigma_sq1, log_sigma_sq2])
+    sess.run(init_gmm)  # or `assign_op.op.run()`
+    print(sess.run([mu_1, mu_2, log_sigma_sq1, log_sigma_sq2]))

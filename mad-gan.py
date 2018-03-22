@@ -29,7 +29,7 @@ tf.set_random_seed(1234)
 # ckpt_dir =
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[1, 5])
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0, 8])
 
 """ graphs """
 generator = models.ss_generator

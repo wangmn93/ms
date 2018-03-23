@@ -14,7 +14,7 @@ from tensorflow.examples.tutorials.mnist import input_data
 
 
 """ param """
-epoch = 400
+epoch = 200
 batch_size = 64
 lr = 0.0002
 z_dim = 100
@@ -73,6 +73,8 @@ c_loss = c_loss_1 + c_loss_2
 #
 gmm_loss_1 = -tf.reduce_mean(f_logit_1) + c_loss_1
 gmm_loss_2 = -tf.reduce_mean(f_logit_2) + c_loss_2
+# gmm_loss_1 = c_loss_1
+# gmm_loss_2 = c_loss_2
 gmm_loss = gmm_loss_1 + gmm_loss_2
 
 # trainable variables for each network

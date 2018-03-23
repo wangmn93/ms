@@ -40,3 +40,15 @@ def saveSampleImgs(imgs, full_path, row, column):
     utils.imwrite(utils.immerge(imgs, row, column),full_path)
 
 
+def sample_and_save(sess, list_of_generators, list_of_names, feed_dict, save_dir, rows = 10, columns = 10):
+    # list_of_generators = [images_form_g1, images_form_g2]  # used for sampling images
+    # list_of_names = ['g1-it%d.jpg' % total_it, 'g2-it%d.jpg' % total_it]
+    # rows = 10
+    # columns = 10
+    # label_zero = np.zeros((rows * columns, 1))
+    # label_one = np.ones((rows * columns, 1))
+    sample_imgs = sess.run(list_of_generators, feed_dict=feed_dict)
+    # save_dir = dir + "/sample_imgs"
+    utils.mkdir(save_dir + '/')
+    for imgs, name in zip(sample_imgs, list_of_names):
+        saveSampleImgs(imgs=imgs, full_path=save_dir + "/" + name, row=rows, column=columns)

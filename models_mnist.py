@@ -11,6 +11,7 @@ from functools import partial
 conv = partial(slim.conv2d, activation_fn=None, weights_initializer=tf.truncated_normal_initializer(stddev=0.02))
 dconv = partial(slim.conv2d_transpose, activation_fn=None, weights_initializer=tf.random_normal_initializer(stddev=0.02))
 fc = partial(ops.flatten_fully_connected, activation_fn=None, weights_initializer=tf.random_normal_initializer(stddev=0.02))
+elu = tf.nn.elu
 relu = tf.nn.relu
 lrelu = partial(ops.leak_relu, leak=0.2)
 batch_norm = partial(slim.batch_norm, decay=0.9, scale=True, epsilon=1e-5, updates_collections=None,)
@@ -244,3 +245,28 @@ def s_generator(z, reuse=True, name = "generator", part1 = "p1", part2 = "p2", t
         y = tf.tanh(fc(y, 784))
         y = tf.reshape(y, [-1, 28, 28, 1])
         return y
+
+#vae
+def encoder(x, z_dim = 10, reuse=True, name = "encoder"):
+    fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_elu(x, 512)
+        y = fc_elu(y, 384)
+        y = fc_elu(y, 256)
+        z_mu = fc(y, z_dim)
+        z_log_sigma_sq = fc(y, z_dim)
+        eps = tf.random_normal(shape=tf.shape(z_log_sigma_sq),
+                           mean=0, stddev=1, dtype=tf.float32)
+        z = z_mu + tf.sqrt(tf.exp(z_log_sigma_sq)) * eps
+        return z, z_mu, z_log_sigma_sq
+
+def decoder(z, x_dim = 784, reuse=True, name = "decoder"):
+    fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
+    # fc_sig = partial(fc, normalizer_fn=None, activation_fn=tf.sigmoid)
+    with tf.variable_scope(name, reuse=reuse):
+        x = fc_elu(z, 256)
+        x = fc_elu(x, 384)
+        x = fc_elu(x, 512)
+        x = tf.sigmoid(fc(x, x_dim))
+        x = tf.reshape(x, [-1, 28, 28, 1])
+        return x

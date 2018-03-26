@@ -217,10 +217,10 @@ finally:
         # for imgs,name in zip(sample_imgs,list_of_names):
         #     my_utils.saveSampleImgs(imgs=imgs, full_path=save_dir+"/"+name, row=rows,column=columns)
     # save checkpoint
-    var = raw_input("Save models?")
-    if var.lower() == 'y':
-        save_path = saver.save(sess, dir+"/checkpoint/model.ckpt")
-        print("Model saved in path: %s" % save_path)
+    # var = raw_input("Save models?")
+    # if var.lower() == 'y':
+    #     save_path = saver.save(sess, dir+"/checkpoint/model.ckpt")
+        # print("Model saved in path: %s" % save_path)
 
     #close session
     print(" [*] Close main session!")

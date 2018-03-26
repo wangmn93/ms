@@ -4,11 +4,11 @@ import tensorflow as tf
 import numpy as np
 from matplotlib import pyplot as plt
 
-def getMNISTDatapool(batch_size, keep=None):
+def getMNISTDatapool(batch_size, keep=None, shift=True):
     if keep is None:
-        imgs, _, num_train_data = data.mnist_load('MNIST_data')
+        imgs, _, num_train_data = data.mnist_load('MNIST_data',shift=shift)
     else:
-        imgs, _, num_train_data = data.mnist_load('MNIST_data', keep=keep)
+        imgs, _, num_train_data = data.mnist_load('MNIST_data', keep=keep, shift=shift)
     print "Total number of training data: " + str(num_train_data)
     imgs.shape = imgs.shape + (1,)
     data_pool = utils.MemoryData({'img': imgs}, batch_size)

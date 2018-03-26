@@ -16,7 +16,7 @@ def unzip_gz(file_name):
     gz_file.close()
 
 
-def mnist_load(data_dir, dataset='train', keep = None):
+def mnist_load(data_dir, dataset='train', keep = None, shift=True):
     """
     modified from https://gist.github.com/akesling/5358964
 
@@ -50,7 +50,10 @@ def mnist_load(data_dir, dataset='train', keep = None):
 
     with open(fname_img, 'rb') as fimg:
         _, _, rows, cols = struct.unpack('>IIII', fimg.read(16))
-        imgs = np.fromfile(fimg, dtype=np.uint8).reshape(len(lbls), rows, cols) / 127.5 - 1
+        if shift:
+            imgs = np.fromfile(fimg, dtype=np.uint8).reshape(len(lbls), rows, cols) / 127.5 - 1
+        else:
+            imgs = np.fromfile(fimg, dtype=np.uint8).reshape(len(lbls), rows, cols) / 127.5
 
     if keep is None:
         return imgs, lbls, len(lbls)

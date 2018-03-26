@@ -12,11 +12,11 @@ import my_utils
 
 
 """ param """
-epoch = 1
+epoch = 100
 batch_size = 64
 # batch_size2 = 64
 lr = 0.0002
-z_dim = 100
+z_dim = 2
 # l_dim = 1
 # beta = 1 #diversity hyper param
 # clip = 0.01
@@ -25,8 +25,6 @@ n_generator = 1
 gan_type="gan-fixed-latent"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-# restore = False
-# ckpt_dir =
 
 ''' data '''
 data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,4,5,7])
@@ -38,14 +36,22 @@ optimizer = tf.train.AdamOptimizer
 
 #sample from gmm
 k = 4
-mus = [-1, -0.5, 0.5, 1]
-vars = [1 ,1, 1, 1]
-def sample_from_gmm(size, k, z_dim = 100):
-    z = np.random.normal(loc=mus[0], scale=vars[0], size=[size//k, z_dim])
+mus = [[0.5, 0.5],[-0.5, 0.5],[-0.5,-0.5],[0.5, -0.5]]
+cov = [[1 ,0],[0, 1]]
+
+def sample_from_gmm(size, k):
+    z = np.random.multivariate_normal(mean=mus[0], cov=cov, size=size//k)
     for i in range(1,k-1):
-        temp = np.random.normal(loc=mus[i], scale=vars[i], size=[size // k, z_dim])
+        temp = np.random.multivariate_normal(mean=mus[i], cov=cov, size=size // k)
         z = np.concatenate((z,temp))
+        np.random.shuffle(z)
     return z
+
+def sample_from_gaussian(mean, cov, size):
+    return np.random.multivariate_normal(mean=mean, cov=cov, size=size)
+
+# def create_z_feedDict():
+
 
 # inputs
 real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
@@ -146,11 +152,11 @@ max_it = epoch * batch_epoch
 def sample_once(it):
     rows = 10
     columns = 10
-    feed = {z: np.random.normal(size=[rows * columns, z_dim]),
-            z1: np.random.normal(loc=mus[0], scale=vars[0], size=[rows * columns, z_dim]),
-            z2: np.random.normal(loc=mus[1], scale=vars[1], size=[rows * columns, z_dim]),
-            z3: np.random.normal(loc=mus[2], scale=vars[2], size=[rows * columns, z_dim]),
-            z4: np.random.normal(loc=mus[3], scale=vars[3], size=[rows * columns, z_dim])}
+    feed = {z: sample_from_gmm(batch_size, k),
+            z1: sample_from_gaussian(mean=mus[0],cov=cov, size=batch_size),
+            z2: sample_from_gaussian(mean=mus[1],cov=cov, size=batch_size),
+            z3: sample_from_gaussian(mean=mus[2],cov=cov, size=batch_size),
+            z4: sample_from_gaussian(mean=mus[3],cov=cov, size=batch_size)}
     list_of_generators = [images_form_g, images_form_c1, images_form_c2, images_form_c3,
                           images_form_c4]  # used for sampling images
     list_of_names = ['it%d-g.jpg' % it, 'it%d-c1.jpg' % it, 'it%d-c2.jpg' % it,
@@ -167,7 +173,7 @@ def training(max_it, it_offset):
         for i in range(n_critic):
             real_ipt = data_pool.batch('img')
             # z_ipt = np.random.normal(size=[batch_size, z_dim])
-            z_ipt = sample_from_gmm(batch_size,k,z_dim)
+            z_ipt = sample_from_gmm(batch_size,k)
             _ = sess.run([d_step], feed_dict={real: real_ipt, z: z_ipt})
             # _ = sess.run([d_step], feed_dict={real: real_ipt, z: z_ipt, label: label_zero})
 
@@ -175,17 +181,17 @@ def training(max_it, it_offset):
         # train G
         for j in range(n_generator):
             # z_ipt = np.random.normal(size=[batch_size, z_dim])
-            z_ipt = sample_from_gmm(batch_size,k, z_dim)
+            z_ipt = sample_from_gmm(batch_size,k)
             _ = sess.run([g_step], feed_dict={z: z_ipt})
 
         if it%10 == 0 :
             real_ipt = data_pool.batch('img')
             # z_ipt = np.random.normal(size=[batch_size, z_dim])
-            z_ipt = sample_from_gmm(batch_size, k, z_dim)
-            z_ipt1 = np.random.normal(loc=mus[0], scale=vars[0], size=[batch_size, z_dim])
-            z_ipt2 = np.random.normal(loc=mus[1], scale=vars[1], size=[batch_size, z_dim])
-            z_ipt3 = np.random.normal(loc=mus[2], scale=vars[2], size=[batch_size, z_dim])
-            z_ipt4 = np.random.normal(loc=mus[3], scale=vars[3], size=[batch_size, z_dim])
+            z_ipt = sample_from_gmm(batch_size, k)
+            z_ipt1 = sample_from_gaussian(mean=mus[0],cov=cov, size=batch_size)
+            z_ipt2 = sample_from_gaussian(mean=mus[1], cov=cov, size=batch_size)
+            z_ipt3 = sample_from_gaussian(mean=mus[2], cov=cov, size=batch_size)
+            z_ipt4 = sample_from_gaussian(mean=mus[3], cov=cov, size=batch_size)
             summary = sess.run(merged, feed_dict={real: real_ipt,z: z_ipt, z1:z_ipt1, z2:z_ipt2, z3:z_ipt3, z4:z_ipt4})
             # summary = sess.run(merged, feed_dict={real: real_ipt, z: z_ipt, label: label_zero})
             writer.add_summary(summary, it)

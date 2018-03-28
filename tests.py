@@ -80,3 +80,13 @@ if 0:
     init_gmm = tf.initialize_variables([mu_1, mu_2, log_sigma_sq1, log_sigma_sq2])
     sess.run(init_gmm)  # or `assign_op.op.run()`
     print(sess.run([mu_1, mu_2, log_sigma_sq1, log_sigma_sq2]))
+
+#sample from categorical dist
+if 1:
+    one_hot_labels = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    p = [1/3.]*3
+
+    def sample_from_categorical(size, k=3):
+        return [one_hot_labels[index] for index in np.random.choice(range(k), size=size, p=p)]
+
+    print sample_from_categorical(10)

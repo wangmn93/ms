@@ -13,7 +13,7 @@ import my_utils
 """ param """
 epoch = 100
 batch_size = 100
-lr = 1e-3
+lr = 1e-4
 z_dim = 2
 n_critic = 1 #
 n_generator = 1

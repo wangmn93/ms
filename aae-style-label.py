@@ -13,54 +13,49 @@ import my_utils
 """ param """
 epoch = 100
 batch_size = 100
-lr = 1e-3
-z_dim = 2
+lr = 1e-4
+style_dim = 2
+label_dim = 3
 n_critic = 1 #
 n_generator = 1
-gan_type="aae"
+gan_type="aae-label-style"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 ''' data '''
 data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,1,9]) #range -1 ~ 1
 
-
 """ graphs """
-encoder = models.encoder
-decoder = models.decoder
+encoder = models.encoder3
+decoder = models.decoder3
 optimizer = tf.train.AdamOptimizer
 discriminator = models.discriminator_for_latent
 # classifier = models.ss_discriminator
+one_hot_labels = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
+p = [1/3.]*3
 
-#sample from gmm
-k = 3
-mus = [[0.5, 0.5],[-0.5, 0.5],[-0.5,-0.5]]
-cov = [[1 ,0],[0, 1]]
+def sample_from_categorical(size, k=3):
+    return [one_hot_labels[index] for index in np.random.choice(range(k), size=size, p=p)]
 
-def sample_gmm(size, k=3):
-    z = np.random.multivariate_normal(mean=mus[0], cov=cov, size=size//k)
-    for i in range(1,k-1):
-        temp = np.random.multivariate_normal(mean=mus[i], cov=cov, size=size // k)
-        z = np.concatenate((z,temp))
-        np.random.shuffle(z)
-    return z
-
-def sample_from_gaussian(mean, cov, size):
-    return np.random.multivariate_normal(mean=mean, cov=cov, size=size)
+# def sample_from_gaussian(mean, cov, size):
+#     return np.random.multivariate_normal(mean=mean, cov=cov, size=size)
 
 # inputs
 real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
 # random_z = tf.placeholder(tf.float32, shape=[None, z_dim])
-sample_from_gmm = tf.placeholder(tf.float32, shape=[None, z_dim])
-sample_from_c1 = tf.placeholder(tf.float32, shape=[None, z_dim])
-sample_from_c2 = tf.placeholder(tf.float32, shape=[None, z_dim])
-sample_from_c3 = tf.placeholder(tf.float32, shape=[None, z_dim])
+sample_labels = tf.placeholder(tf.float32, shape=[None, 3])
+sample_styles = tf.placeholder(tf.float32, shape=[None, 2])
+
+sample_l_1 = tf.placeholder(tf.float32, shape=[None, 3])
+sample_l_2 = tf.placeholder(tf.float32, shape=[None, 3])
+sample_l_3 = tf.placeholder(tf.float32, shape=[None, 3])
+
 
 # encoder
-z, _, _ = encoder(real, reuse=False)
+labels, styles = encoder(real, reuse=False)
 
 #decoder
-x_hat = decoder(z, reuse=False)
+x_hat = decoder(label=labels, style=styles, reuse=False)
 
 real_flatten = tf.reshape(real, [-1, 784])
 x_hat_flatten = tf.reshape(x_hat, [-1, 784])
@@ -72,28 +67,44 @@ recon_loss = -tf.reduce_sum(
         )
 recon_loss = tf.reduce_mean(recon_loss)
 
-#discriminator
-r_logit = discriminator(sample_from_gmm, reuse=False)
-f_logit = discriminator(z)
+#discriminator for label
+r_logit = discriminator(sample_labels, reuse=False)
+f_logit = discriminator(labels)
 
 d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
 d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.zeros_like(f_logit)))
 d_loss = d_loss_real + d_loss_fake
 
-g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.ones_like(f_logit)))
-loss = recon_loss + g_loss
+label_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.ones_like(f_logit)))
 
+# loss = recon_loss + label_loss
+loss = recon_loss
+
+#discriminator for style
+r_logit_2 = discriminator(sample_styles, name="style_d", reuse=False)
+f_logit_2 = discriminator(styles,name="style_d")
+
+d_loss_real_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit_2, labels=tf.ones_like(r_logit_2)))
+d_loss_fake_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_2, labels=tf.zeros_like(f_logit_2)))
+d_loss_2 = d_loss_real_2 + d_loss_fake_2
+
+style_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_2, labels=tf.ones_like(f_logit_2)))
+# loss += style_loss
+l_s_loss = label_loss + style_loss
 # trainable variables for each network
 T_vars = tf.trainable_variables()
 en_var = [var for var in T_vars if var.name.startswith('encoder')]
 de_var = [var for var in T_vars if var.name.startswith('decoder')]
 dis_var = [var for var in T_vars if var.name.startswith('discriminator')]
+dis_var_2 = [var for var in T_vars if var.name.startswith('style_d')]
 
 # optims
 global_step = tf.Variable(0, name='global_step',trainable=False)
 vae_step = optimizer(learning_rate=lr).minimize(loss, var_list=en_var+de_var, global_step=global_step)
-d_step = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=dis_var)
-
+d_step = optimizer(learning_rate=lr, beta1=0.9).minimize(d_loss, var_list=dis_var)
+d2_step = optimizer(learning_rate=lr, beta1=0.9).minimize(d_loss_2, var_list=dis_var_2)
+l_s_step = optimizer(learning_rate=lr).minimize(l_s_loss, var_list=en_var)
+# l_s_step = optimizer(learning_rate=lr).minimize(label_loss+style_loss, var_list=encoder)
 
 """ train """
 ''' init '''
@@ -107,11 +118,12 @@ saver = tf.train.Saver(max_to_keep=5)
 # Send summary statistics to TensorBoard
 tf.summary.scalar('Total_loss', loss)
 tf.summary.scalar('D_loss', d_loss)
+tf.summary.scalar('D_loss_2', d_loss_2)
 
-images_form_de = decoder(sample_from_gmm)
-images_form_c1 = decoder(sample_from_c1)
-images_form_c2 = decoder(sample_from_c2)
-images_form_c3= decoder(sample_from_c3)
+images_form_de = decoder(sample_labels, sample_styles)
+images_form_c1 = decoder(sample_l_1, sample_styles)
+images_form_c2 = decoder(sample_l_2, sample_styles)
+images_form_c3= decoder(sample_l_3, sample_styles)
 
 tf.summary.image('Generator_image', images_form_de, 12)
 tf.summary.image('Generator_image_c1', images_form_c1, 12)
@@ -137,10 +149,11 @@ max_it = epoch * batch_epoch
 def sample_once(it):
     rows = 10
     columns = 10
-    feed = {sample_from_gmm: sample_gmm(size=rows*columns),
-            sample_from_c1: sample_from_gaussian(mus[0], cov, 12),
-            sample_from_c2: sample_from_gaussian(mus[1], cov, 12),
-            sample_from_c3: sample_from_gaussian(mus[2], cov, 12)}
+    feed = {sample_labels: sample_from_categorical(size=rows*columns),
+            sample_l_1: [one_hot_labels[0] for _ in range(rows*columns)],
+            sample_l_2: [one_hot_labels[1] for _ in range(rows*columns)],
+            sample_l_3: [one_hot_labels[2] for _ in range(rows*columns)],
+            sample_styles:np.random.normal(size=[rows*columns, style_dim])}
     list_of_generators = [images_form_de, images_form_c1, images_form_c2, images_form_c3]  # used for sampling images
     list_of_names = ['it%d-de.jpg' % it, 'it%d-c1.jpg' % it, 'it%d-c2.jpg' % it,'it%d-c3.jpg' % it,]
     save_dir = dir + "/sample_imgs"
@@ -163,15 +176,21 @@ def training(max_it, it_offset):
 
         _ = sess.run([vae_step], feed_dict={real: real_ipt})
 
-        _ = sess.run([d_step], feed_dict={real: real_ipt, sample_from_gmm:sample_gmm(size=batch_size)})
+        _ = sess.run([d_step], feed_dict={real: real_ipt, sample_labels: sample_from_categorical(size=batch_size)})
+
+        _ = sess.run([d2_step], feed_dict={real: real_ipt, sample_styles: np.random.normal(size=[batch_size, style_dim])})
+
+        _ = sess.run([l_s_step], feed_dict={real: real_ipt})
+
 
         if it%10 == 0 :
             real_ipt = (data_pool.batch('img')+1)/2.
             summary = sess.run(merged, feed_dict={real: real_ipt,
-                                                  sample_from_gmm:sample_gmm(size=batch_size),
-                                                  sample_from_c1:sample_from_gaussian(mus[0],cov,12),
-                                                  sample_from_c2:sample_from_gaussian(mus[1], cov, 12),
-                                                  sample_from_c3:sample_from_gaussian(mus[2], cov, 12)})
+                                                  sample_labels: sample_from_categorical(size=batch_size),
+                                                  sample_l_1: [one_hot_labels[0] for _ in range(batch_size)],
+                                                  sample_l_2: [one_hot_labels[1] for _ in range(batch_size)],
+                                                  sample_l_3: [one_hot_labels[2] for _ in range(batch_size)],
+                                                  sample_styles: np.random.normal(size=[batch_size, style_dim])})
             writer.add_summary(summary, it)
 
     var = raw_input("Continue training for %d iterations?" % max_it)

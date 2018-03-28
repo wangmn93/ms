@@ -25,13 +25,13 @@ gan_type="wgan-gmm"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0, 9])
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,1, 9])
 
 """ graphs """
 
 generator = models.generator
 discriminator = models.discriminator
-
+classifier = models.discriminator_m
 
 # inputs
 real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
@@ -40,42 +40,56 @@ z = tf.placeholder(tf.float32, shape=[None, z_dim])
 with tf.variable_scope("gmm", reuse=False):
     mu_1 = tf.get_variable("mean1", [z_dim], initializer=tf.constant_initializer(0))
     mu_2 = tf.get_variable("mean2", [z_dim], initializer=tf.constant_initializer(0))
+    mu_3 = tf.get_variable("mean3", [z_dim], initializer=tf.constant_initializer(0))
     log_sigma_sq1 = tf.get_variable("log_sigma_sq1", [z_dim], initializer=tf.constant_initializer(0.001))
     log_sigma_sq2 = tf.get_variable("log_sigma_sq2", [z_dim], initializer=tf.constant_initializer(0.001))
-init_gmm = tf.initialize_variables([mu_1, mu_2, log_sigma_sq1, log_sigma_sq2])
+    log_sigma_sq3 = tf.get_variable("log_sigma_sq3", [z_dim], initializer=tf.constant_initializer(0.001))
+init_gmm = tf.initialize_variables([mu_1, mu_2, mu_3, log_sigma_sq1, log_sigma_sq2, log_sigma_sq3])
     # clusters
 z1 = mu_1 + z * tf.sqrt(tf.exp(log_sigma_sq1))
 z2 = mu_2 + z * tf.sqrt(tf.exp(log_sigma_sq2))
+z3 = mu_3 + z * tf.sqrt(tf.exp(log_sigma_sq3))
 
 
 # generator
 fake_1 = generator(z1, reuse=False, training=False)
 fake_2 = generator(z2, training=False)
-# fake_3 = generator(z, training=False)
+fake_3 = generator(z3, training=False)
 
 # discriminator
 f_logit_1 = discriminator(fake_1, reuse=False, training=False)
 f_logit_2 = discriminator(fake_2, training=False)
+f_logit_3 = discriminator(fake_3, training=False)
 
 #suplement discriminator
-c_logit_1 = discriminator(fake_1,name="classifier" ,reuse=False)
-c_logit_2 = discriminator(fake_2,name="classifier")
+c_logit_1 = classifier(fake_1,name="classifier" ,reuse=False)
+c_logit_2 = classifier(fake_2,name="classifier")
+c_logit_3 = classifier(fake_3,name="classifier")
 
 #KL
-latent_loss_1 = -0.5 * tf.reduce_sum(1 + log_sigma_sq1 - tf.square(mu_1) - tf.exp(log_sigma_sq1))
-latent_loss_2 = -0.5 * tf.reduce_sum(1 + log_sigma_sq2 - tf.square(mu_2) - tf.exp(log_sigma_sq2))
+# latent_loss_1 = -0.5 * tf.reduce_sum(1 + log_sigma_sq1 - tf.square(mu_1) - tf.exp(log_sigma_sq1))
+# latent_loss_2 = -0.5 * tf.reduce_sum(1 + log_sigma_sq2 - tf.square(mu_2) - tf.exp(log_sigma_sq2))
 
 # losses
-c_loss_1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=c_logit_1, labels=tf.zeros_like(c_logit_1)))
-c_loss_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=c_logit_2, labels=tf.ones_like(c_logit_2)))
-c_loss = c_loss_1 + c_loss_2
+onehot_labels_zero = tf.one_hot(indices=tf.zeros(batch_size, tf.int32), depth=3)
+onehot_labels_one = tf.one_hot(indices=tf.ones(batch_size, tf.int32), depth=3)
+onehot_labels_two = tf.one_hot(indices=tf.cast(tf.scalar_mul(2,tf.ones(batch_size)), tf.int32), depth=3)
+c_loss_1 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_logit_1, onehot_labels=onehot_labels_zero))
+c_loss_2 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_logit_2, onehot_labels=onehot_labels_one))
+c_loss_3 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_logit_3, onehot_labels=onehot_labels_two))
+
+# c_loss_1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=c_1, labels=tf.zeros_like(c_1)))
+# c_loss_1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=c_logit_1, labels=tf.zeros_like(c_logit_1)))
+# c_loss_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=c_logit_2, labels=tf.ones_like(c_logit_2)))
+c_loss = c_loss_1 + c_loss_2 +c_loss_3
 
 #
 gmm_loss_1 = -tf.reduce_mean(f_logit_1) + c_loss_1
 gmm_loss_2 = -tf.reduce_mean(f_logit_2) + c_loss_2
+gmm_loss_3 = -tf.reduce_mean(f_logit_3) + c_loss_3
 # gmm_loss_1 = c_loss_1
 # gmm_loss_2 = c_loss_2
-gmm_loss = gmm_loss_1 + gmm_loss_2
+gmm_loss = gmm_loss_1 + gmm_loss_2 + gmm_loss_3
 
 # trainable variables for each network
 G_vars = tf.global_variables()
@@ -111,15 +125,19 @@ saver = tf.train.Saver()
 # Send summary statistics to TensorBoard
 tf.summary.scalar('C1_loss', gmm_loss_1)
 tf.summary.scalar('C2_loss', gmm_loss_2)
+tf.summary.scalar('C3_loss', gmm_loss_3)
 tf.summary.scalar('Classifier_loss', c_loss)
 images_for_tensorboard = generator(z, training=False)
 images_for_1 = generator(z1, training=False)
 images_for_2 = generator(z2, training=False)
+images_for_3 = generator(z3, training=False)
 tf.summary.image('Generated_images', images_for_tensorboard, 12)
 tf.summary.image('C1_images', images_for_1, 12)
 tf.summary.image('C2_images', images_for_2, 12)
+tf.summary.image('C3_images', images_for_3, 12)
 tf.summary.histogram('mu_1', tf.reduce_mean(mu_1))
 tf.summary.histogram('mu_2', tf.reduce_mean(mu_2))
+tf.summary.histogram('mu_3', tf.reduce_mean(mu_2))
 merged = tf.summary.merge_all()
 logdir = dir+"/tensorboard"
 writer = tf.summary.FileWriter(logdir, sess.graph)
@@ -131,7 +149,7 @@ print('tensorboard dir: '+logdir)
 # if not utils.load_checkpoint(ckpt_dir, sess):
 sess.run(tf.global_variables_initializer())
 
-wgan_saver.restore(sess, "results/wgan-param-0-9/checkpoint/WGAN-model.ckpt")
+wgan_saver.restore(sess, "results/wgan-param-0-1-9/checkpoint/WGAN-model.ckpt")
 # sess.run(init_gmm)
 # sess.run(init_classifier)
 
@@ -205,7 +223,7 @@ try:
 except Exception, e:
     traceback.print_exc()
 finally:
-    save_img([images_for_1, images_for_2, images_for_tensorboard], ['g1-it%d.jpg' % 1, 'g2-it%d.jpg' % 1, 'wgan.jpg'])
+    save_img([images_for_1, images_for_2, images_for_3, images_for_tensorboard], ['g1-it%d.jpg' % 1, 'g2-it%d.jpg' % 1, 'g3-it%d.jpg' % 1,'wgan.jpg'])
     # save checkpoint
     # save_path = saver.save(sess, dir+"/checkpoint/model.ckpt")
     # print("Model saved in path: %s" % save_path)

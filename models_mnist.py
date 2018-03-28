@@ -31,6 +31,21 @@ def generator(z, dim=64, reuse=True, training=True, name="generator"):
         img = tf.tanh(dconv(y, 1, 5, 2))
         return img
 
+def mad_generator2(z, dim=64, reuse=True, training=True, name="generator"):
+    bn = partial(batch_norm, is_training=training)
+    dconv_bn_relu = partial(dconv, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 1024)
+        y = fc_bn_relu(y, 7 * 7 * dim * 2)
+        y = tf.reshape(y, [-1, 7, 7, dim * 2])
+        y = dconv_bn_relu(y, dim * 2, 5, 2)
+        img = tf.tanh(dconv(y, 1, 5, 2))
+        img2 = tf.tanh(dconv(y, 1, 5, 2))
+        img3 = tf.tanh(dconv(y, 1, 5, 2))
+        return img, img2, img3
+
 #mimic
 def generator2(z, dim=64, reuse=True, training=True):
     bn = partial(batch_norm, is_training=training)
@@ -76,6 +91,17 @@ def discriminator(img, dim=64, reuse=True, training=True, name= 'discriminator')
         logit = fc(y, 1)
         return logit
 
+def discriminator_m(img, dim=64, reuse=True, training=True, name= 'discriminator'):
+    bn = partial(batch_norm, is_training=training)
+    conv_bn_lrelu = partial(conv, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+    fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+
+    with tf.variable_scope(name, reuse=reuse):
+        y = lrelu(conv(img, 1, 5, 2))
+        y = conv_bn_lrelu(y, dim, 5, 2)
+        y = fc_bn_lrelu(y, 1024)
+        logit = fc(y, 3)
+        return logit
 
 def discriminator_wgan_gp(img, dim=64, reuse=True, training=True):
     conv_ln_lrelu = partial(conv, normalizer_fn=ln, activation_fn=lrelu, biases_initializer=None)
@@ -182,12 +208,37 @@ def ss_generator(z, reuse=True, name = "generator", training = True):
         y = tf.reshape(y, [-1, 28, 28, 1])
         return y
 
+def mad_generator(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 256)
+        y = fc_bn_relu(y, 512)
+        y = fc_bn_relu(y, 1024)
+
+        y_1 = tf.tanh(fc(y, 784))
+        y_2 = tf.tanh(fc(y, 784))
+        y_3 = tf.tanh(fc(y, 784))
+
+        y_1 = tf.reshape(y_1, [-1, 28, 28, 1])
+        y_2 = tf.reshape(y_2, [-1, 28, 28, 1])
+        y_3 = tf.reshape(y_3, [-1, 28, 28, 1])
+        return y_1, y_2, y_3
+
 def ss_discriminator(x, label = None, reuse=True, name = "discriminator"):
     fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
     with tf.variable_scope(name, reuse=reuse):
         y =  tf.reshape(x, [-1, 784])
         if label is not None:
             y = tf.concat([y, label], 1)
+        y = fc_lrelu(y, 1024)
+        return fc(y, 1)
+
+def discriminator_for_latent(x, reuse=True, name = "discriminator"):
+    fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_lrelu(x, 512)
         y = fc_lrelu(y, 1024)
         return fc(y, 1)
 
@@ -236,6 +287,14 @@ def multi_c_discriminator2(x, reuse=True, name = "discriminator"):
         y = fc_lrelu(y, 1024)
         return fc(y, 3)
 
+def multi_c_discriminator3(x, reuse=True, name = "discriminator"):
+    fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = tf.reshape(x, [-1, 784])
+        y = fc_lrelu(y, 1024)
+        y = fc_lrelu(y, 1024)
+        return fc(y, 4)
+
 def s_generator(z, reuse=True, name = "generator", part1 = "p1", part2 = "p2", training = True):
     bn = partial(batch_norm, is_training=training)
     # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
@@ -247,7 +306,7 @@ def s_generator(z, reuse=True, name = "generator", part1 = "p1", part2 = "p2", t
         return y
 
 #vae
-def encoder(x, z_dim = 10, reuse=True, name = "encoder"):
+def encoder(x, z_dim = 2, reuse=True, name = "encoder"):
     fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
     with tf.variable_scope(name, reuse=reuse):
         y = fc_elu(x, 512)
@@ -262,11 +321,43 @@ def encoder(x, z_dim = 10, reuse=True, name = "encoder"):
 
 def decoder(z, x_dim = 784, reuse=True, name = "decoder"):
     fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
-    # fc_sig = partial(fc, normalizer_fn=None, activation_fn=tf.sigmoid)
     with tf.variable_scope(name, reuse=reuse):
         x = fc_elu(z, 256)
         x = fc_elu(x, 384)
         x = fc_elu(x, 512)
         x = tf.sigmoid(fc(x, x_dim))
+        x = tf.reshape(x, [-1, 28, 28, 1])
+        return x
+
+#output softmax
+def encoder2(x, out_dim = 4, reuse=True, name = "encoder"):
+    fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_elu(x, 512)
+        y = fc_elu(y, 384)
+        y = fc_elu(y, 256)
+        y = tf.nn.softmax(fc(y, out_dim))
+        return y
+
+#encode image into label and style
+def encoder3(x, reuse=True, name = "encoder"):
+    fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_elu(x, 512)
+        y = fc_elu(y, 384)
+        y = fc_elu(y, 256)
+        label = tf.nn.softmax(fc(y, 3))
+        style = fc(y, 2)
+        return label, style
+
+#decode label and style to image
+def decoder3(label, style, reuse=True, name = "decoder"):
+    fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
+    with tf.variable_scope(name, reuse=reuse):
+        x = tf.concat([label, style], 1)
+        x = fc_elu(x, 256)
+        x = fc_elu(x, 384)
+        x = fc_elu(x, 512)
+        x = tf.sigmoid(fc(x, 784))
         x = tf.reshape(x, [-1, 28, 28, 1])
         return x

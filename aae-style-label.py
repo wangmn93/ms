@@ -17,39 +17,47 @@ lr = 1e-3
 z_dim = 2
 n_critic = 1 #
 n_generator = 1
-gan_type="vae-gan-gmm"
+gan_type="aae"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,9]) #range -1 ~ 1
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,1,9]) #range -1 ~ 1
 
 
 """ graphs """
 encoder = models.encoder
 decoder = models.decoder
 optimizer = tf.train.AdamOptimizer
-discriminator = models.ss_discriminator
-classifier = models.ss_discriminator
+discriminator = models.discriminator_for_latent
+# classifier = models.ss_discriminator
 
-with tf.variable_scope("gmm", reuse=False):
-    mu_1 = tf.get_variable("mean1", [z_dim], initializer=tf.constant_initializer(-0.1))
-    mu_2 = tf.get_variable("mean2", [z_dim], initializer=tf.constant_initializer(0.2))
-    # mu_3 = tf.get_variable("mean3", [z_dim], initializer=tf.constant_initializer(0.1))
-    log_sigma_sq1 = tf.get_variable("log_sigma_sq1", [z_dim], initializer=tf.constant_initializer(0.001))
-    log_sigma_sq2 = tf.get_variable("log_sigma_sq2", [z_dim], initializer=tf.constant_initializer(0.001))
-    # log_sigma_sq3 = tf.get_variable("log_sigma_sq3", [z_dim], initializer=tf.constant_initializer(0.001))
+#sample from gmm
+k = 3
+mus = [[0.5, 0.5],[-0.5, 0.5],[-0.5,-0.5]]
+cov = [[1 ,0],[0, 1]]
+
+def sample_gmm(size, k=3):
+    z = np.random.multivariate_normal(mean=mus[0], cov=cov, size=size//k)
+    for i in range(1,k-1):
+        temp = np.random.multivariate_normal(mean=mus[i], cov=cov, size=size // k)
+        z = np.concatenate((z,temp))
+        np.random.shuffle(z)
+    return z
+
+def sample_from_gaussian(mean, cov, size):
+    return np.random.multivariate_normal(mean=mean, cov=cov, size=size)
 
 # inputs
 real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
-random_z = tf.placeholder(tf.float32, shape=[None, z_dim])
-
-z1 = mu_1 + random_z * tf.sqrt(tf.exp(log_sigma_sq1))
-z2 = mu_2 + random_z * tf.sqrt(tf.exp(log_sigma_sq2))
-# z3 = mu_3 + random_z * tf.sqrt(tf.exp(log_sigma_sq3))
+# random_z = tf.placeholder(tf.float32, shape=[None, z_dim])
+sample_from_gmm = tf.placeholder(tf.float32, shape=[None, z_dim])
+sample_from_c1 = tf.placeholder(tf.float32, shape=[None, z_dim])
+sample_from_c2 = tf.placeholder(tf.float32, shape=[None, z_dim])
+sample_from_c3 = tf.placeholder(tf.float32, shape=[None, z_dim])
 
 # encoder
-z, z_mu, z_log_sigma_sq = encoder(real, reuse=False)
+z, _, _ = encoder(real, reuse=False)
 
 #decoder
 x_hat = decoder(z, reuse=False)
@@ -63,68 +71,29 @@ recon_loss = -tf.reduce_sum(
             axis=1
         )
 recon_loss = tf.reduce_mean(recon_loss)
-# recon_loss = tf.losses.mean_squared_error(labels=real, predictions=x_hat)
-# recon_loss = tf.reduce_mean(recon_loss)
-
-# Latent loss
-# Kullback Leibler divergence: measure the difference between two distributions
-# Here we measure the divergence between the latent distribution and N(0, 1)
-latent_loss = -0.5 * tf.reduce_sum(1 + z_log_sigma_sq - tf.square(z_mu) - tf.exp(z_log_sigma_sq), axis=1)
-latent_loss = tf.reduce_mean(latent_loss)
-loss = recon_loss + latent_loss
 
 #discriminator
-fake = decoder(random_z)
-fake_1 = decoder(z1)
-fake_2 = decoder(z2)
-# fake_3 = decoder(z3)
-r_logit = discriminator(real, reuse=False)
-f_logit = discriminator(fake)
+r_logit = discriminator(sample_from_gmm, reuse=False)
+f_logit = discriminator(z)
 
 d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
 d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.zeros_like(f_logit)))
 d_loss = d_loss_real + d_loss_fake
 
-#classifier
-onehot_labels_zero = tf.one_hot(indices=tf.zeros(batch_size, tf.int32), depth=3)
-onehot_labels_one = tf.one_hot(indices=tf.ones(batch_size, tf.int32), depth=3)
-onehot_labels_two = tf.one_hot(indices=tf.cast(tf.scalar_mul(2,tf.ones(batch_size)), tf.int32), depth=3)
-
-c_1 = classifier(fake_1, reuse=False, name="classifier")
-c_2 = classifier(fake_2, name="classifier")
-# c_3 = classifier(fake_3, name="classifier")
-# print(sess.run(tf.shape(onehot_labels_zero)))
-c_loss_1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=c_1, labels=tf.zeros_like(c_1)))
-c_loss_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=c_2, labels=tf.ones_like(c_2)))
-# c_loss_3 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_3, onehot_labels=onehot_labels_two))
-c_loss = c_loss_1 + c_loss_2
-
-#gmm
-f_logit_1 = discriminator(fake_1)
-f_logit_2 = discriminator(fake_2)
-# f_logit_3 = discriminator(fake_3)
-gmm_loss_1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_1, labels=tf.ones_like(f_logit_1)))
-gmm_loss_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_2, labels=tf.ones_like(f_logit_2)))
-# gmm_loss_3 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_3, labels=tf.ones_like(f_logit_3)))
-
-latent_loss_1 = -0.5 * tf.reduce_sum(1 + log_sigma_sq1 - tf.square(mu_1) - tf.exp(log_sigma_sq1))
-latent_loss_2 = -0.5 * tf.reduce_sum(1 + log_sigma_sq2 - tf.square(mu_2) - tf.exp(log_sigma_sq2))
-gmm_loss = gmm_loss_1 + gmm_loss_2 + c_loss + latent_loss_1 + latent_loss_2
+g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.ones_like(f_logit)))
+loss = recon_loss + g_loss
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()
 en_var = [var for var in T_vars if var.name.startswith('encoder')]
 de_var = [var for var in T_vars if var.name.startswith('decoder')]
 dis_var = [var for var in T_vars if var.name.startswith('discriminator')]
-gmm_var = [var for var in T_vars if var.name.startswith('gmm')]
-c_var = [var for var in T_vars if var.name.startswith('classifier')]
 
 # optims
 global_step = tf.Variable(0, name='global_step',trainable=False)
 vae_step = optimizer(learning_rate=lr).minimize(loss, var_list=en_var+de_var, global_step=global_step)
-d_step = optimizer(learning_rate=lr).minimize(d_loss, var_list=dis_var)
-c_step = optimizer(learning_rate=0.0002, beta1=0.5).minimize(c_loss, var_list=c_var)
-gmm_step = optimizer(learning_rate=0.0002, beta1=0.5).minimize(gmm_loss, var_list=gmm_var)
+d_step = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=dis_var)
+
 
 """ train """
 ''' init '''
@@ -138,18 +107,19 @@ saver = tf.train.Saver(max_to_keep=5)
 # Send summary statistics to TensorBoard
 tf.summary.scalar('Total_loss', loss)
 tf.summary.scalar('D_loss', d_loss)
-tf.summary.scalar('C_loss', c_loss)
-images_form_de = decoder(random_z)
-images_form_c1 = decoder(z1)
-images_form_c2 = decoder(z2)
-# images_form_c3= decoder(z3)
+
+images_form_de = decoder(sample_from_gmm)
+images_form_c1 = decoder(sample_from_c1)
+images_form_c2 = decoder(sample_from_c2)
+images_form_c3= decoder(sample_from_c3)
+
 tf.summary.image('Generator_image', images_form_de, 12)
 tf.summary.image('Generator_image_c1', images_form_c1, 12)
 tf.summary.image('Generator_image_c2', images_form_c2, 12)
-# tf.summary.image('Generator_image_c3', images_form_c3, 12)
+tf.summary.image('Generator_image_c3', images_form_c3, 12)
 
-tf.summary.histogram('mu_1', mu_1)
-tf.summary.histogram('mu_2', mu_2)
+# tf.summary.histogram('mu_1', mu_1)
+# tf.summary.histogram('mu_2', mu_2)
 # tf.summary.histogram('mu_3', mu_3)
 
 merged = tf.summary.merge_all()
@@ -167,12 +137,22 @@ max_it = epoch * batch_epoch
 def sample_once(it):
     rows = 10
     columns = 10
-    feed = {random_z: np.random.normal(size=[rows*columns, z_dim])}
-    list_of_generators = [images_form_de, images_form_c1, images_form_c2]  # used for sampling images
-    list_of_names = ['it%d-de.jpg' % it, 'it%d-c1.jpg' % it, 'it%d-c2.jpg' % it]
+    feed = {sample_from_gmm: sample_gmm(size=rows*columns),
+            sample_from_c1: sample_from_gaussian(mus[0], cov, 12),
+            sample_from_c2: sample_from_gaussian(mus[1], cov, 12),
+            sample_from_c3: sample_from_gaussian(mus[2], cov, 12)}
+    list_of_generators = [images_form_de, images_form_c1, images_form_c2, images_form_c3]  # used for sampling images
+    list_of_names = ['it%d-de.jpg' % it, 'it%d-c1.jpg' % it, 'it%d-c2.jpg' % it,'it%d-c3.jpg' % it,]
     save_dir = dir + "/sample_imgs"
     my_utils.sample_and_save(sess=sess, list_of_generators=list_of_generators, feed_dict=feed,
                              list_of_names=list_of_names, save_dir=save_dir)
+
+# def plot_latent_space():
+#     real_ipt = (data_pool.batch('img') + 1) / 2.
+#     real_ipt2 = (data_pool.batch('img') + 1) / 2.
+#     real_ipt3 = (data_pool.batch('img') + 1) / 2.
+#
+#     _ = sess.run([z], feed_dict={real: real_ipt})
 
 def training(max_it, it_offset):
     print("Max iteration: " + str(max_it))
@@ -180,14 +160,18 @@ def training(max_it, it_offset):
     for it in range(it_offset, it_offset + max_it):
         # for i in range(n_critic):
         real_ipt = (data_pool.batch('img')+1)/2.
-        z_ipt = np.random.normal(size=[batch_size, z_dim])
-        _, _ = sess.run([vae_step, d_step], feed_dict={real: real_ipt, random_z:z_ipt})
-        if it>10000:
-            _, _ = sess.run([c_step, gmm_step], feed_dict={random_z: z_ipt})
+
+        _ = sess.run([vae_step], feed_dict={real: real_ipt})
+
+        _ = sess.run([d_step], feed_dict={real: real_ipt, sample_from_gmm:sample_gmm(size=batch_size)})
+
         if it%10 == 0 :
             real_ipt = (data_pool.batch('img')+1)/2.
-            z_ipt =  np.random.normal(size=[batch_size, z_dim])
-            summary = sess.run(merged, feed_dict={real: real_ipt,random_z: z_ipt})
+            summary = sess.run(merged, feed_dict={real: real_ipt,
+                                                  sample_from_gmm:sample_gmm(size=batch_size),
+                                                  sample_from_c1:sample_from_gaussian(mus[0],cov,12),
+                                                  sample_from_c2:sample_from_gaussian(mus[1], cov, 12),
+                                                  sample_from_c3:sample_from_gaussian(mus[2], cov, 12)})
             writer.add_summary(summary, it)
 
     var = raw_input("Continue training for %d iterations?" % max_it)

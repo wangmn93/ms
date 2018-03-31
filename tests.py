@@ -82,7 +82,7 @@ if 0:
     print(sess.run([mu_1, mu_2, log_sigma_sq1, log_sigma_sq2]))
 
 #sample from categorical dist
-if 1:
+if 0:
     one_hot_labels = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     p = [1/3.]*3
 
@@ -90,3 +90,62 @@ if 1:
         return [one_hot_labels[index] for index in np.random.choice(range(k), size=size, p=p)]
 
     print sample_from_categorical(10)
+
+#test einsum
+if 0:
+    k = 4
+    z_dim = 2
+    batch_size = 5
+    size =batch_size
+    log_sigma_sq = -2
+    with tf.variable_scope("gmm", reuse=False):
+        # mus = tf.get_variable("mus", [k, z_dim], initializer=tf.constant_initializer(0))
+        # log_sigma_sqs = tf.get_variable("log_sigma_sqs", [k, z_dim], initializer=tf.constant_initializer(0.001))
+        mus =  tf.constant([[0.5, 0.5],[-0.5, 0.5],[-0.5,-0.5],[0.5, -0.5]],shape=[4,2],dtype=tf.float32)
+        log_sigma_sqs = tf.constant([[log_sigma_sq, log_sigma_sq]]*4,shape=[4,2], dtype=tf.float32)
+
+
+    def get_gmm_sample(size):
+    # shape = (size,)+tf.shape(log_sigma_sqs)
+    # print shape
+        eps = tf.random_normal(shape=(size, k, z_dim),mean=0, stddev=1, dtype=tf.float32)
+        zs = tf.tile(tf.expand_dims(mus, 0),[size,1,1]) \
+         +  tf.tile(tf.expand_dims(tf.sqrt(tf.exp(log_sigma_sqs)),0),[size,1,1])*eps
+        return zs
+
+
+    softmaxs = tf.constant([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1],[0,0,0,1]], shape=[batch_size, k],dtype=tf.float32)
+    zs = get_gmm_sample(batch_size) # batch_size x 4x 2
+    # temp = tf.expand_dims(tf.sqrt(tf.exp(softmaxs)), -1) # batch_size x 4 x 1
+    r = tf.einsum('ib,ibk->ik', softmaxs, zs)
+    sess = tf.Session()
+    # t = tf.tile(tf.expand_dims(mus, 0),[10,1,1])
+    print zs.shape
+    print softmaxs.shape
+    print r.shape
+    # r = tf.reshape(r,[batch_size,z_dim])
+    # print sess.run([t])
+
+    print sess.run([mus,r])
+    sess.close()
+
+if 0:
+    batch_size = 10
+    data_pool_1 = my_utils.getMNISTDatapool(batch_size,keep=[0])  # range -1 ~ 1
+    data_pool_2 = my_utils.getMNISTDatapool(batch_size, keep=[1])
+    imgs_1 = data_pool_1.batch('img')
+    imgs_2 = data_pool_2.batch('img')
+
+
+    for i,j in zip(imgs_1, imgs_2):
+        fig = plt.figure()
+
+        fig.add_subplot(1, 2, 0)
+        img = np.reshape(i, [28, 28])
+        plt.imshow(img, cmap='gray')
+
+        img_2 = np.reshape(j, [28, 28])
+        fig.add_subplot(1, 2, 1)
+        plt.imshow(img_2, cmap='gray')
+
+        plt.show()

@@ -14,6 +14,7 @@ fc = partial(ops.flatten_fully_connected, activation_fn=None, weights_initialize
 elu = tf.nn.elu
 relu = tf.nn.relu
 lrelu = partial(ops.leak_relu, leak=0.2)
+lrelu_2 = partial(ops.leak_relu, leak=0.1)
 batch_norm = partial(slim.batch_norm, decay=0.9, scale=True, epsilon=1e-5, updates_collections=None,)
 ln = slim.layer_norm
 
@@ -208,6 +209,72 @@ def ss_generator(z, reuse=True, name = "generator", training = True):
         y = tf.reshape(y, [-1, 28, 28, 1])
         return y
 
+def cat_generator(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu_2, biases_initializer=None)
+    fc_bn_lrelu_2 = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_lrelu(z, 500)
+        y = fc_bn_lrelu(y, 500)
+        y = fc_bn_lrelu_2(y, 1000)
+        y = tf.sigmoid(fc(y, 784))
+        y = tf.reshape(y, [-1, 28, 28, 1])
+        return y
+
+
+def cat_generator_3heads(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu_2, biases_initializer=None)
+    fc_bn_lrelu_2 = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_lrelu(z, 500)
+        y = fc_bn_lrelu(y, 500)
+        y = fc_bn_lrelu_2(y, 1000)
+        y_1 = tf.sigmoid(fc(y, 784))
+        y_2 = tf.sigmoid(fc(y, 784))
+        y_3 = tf.sigmoid(fc(y, 784))
+        y_1 = tf.reshape(y_1, [-1, 28, 28, 1])
+        y_2 = tf.reshape(y_2, [-1, 28, 28, 1])
+        y_3 = tf.reshape(y_3, [-1, 28, 28, 1])
+        return y_1, y_2, y_3
+
+def cat_discriminator(z, out_dim=3, reuse=True, name = "discriminator", training = True, stddev=0.3):
+    bn = partial(batch_norm, is_training=training)
+    fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu_2, biases_initializer=None)
+    # fc_bn_lrelu_2 = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = z + tf.random_normal(shape=tf.shape(z),mean=0, stddev=stddev, dtype=tf.float32)
+        y = fc_bn_lrelu(y, 1000)
+        y = y + tf.random_normal(shape=tf.shape(y),mean=0, stddev=stddev, dtype=tf.float32)
+        y = fc_bn_lrelu(y, 500)
+        y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
+        y = fc_bn_lrelu(y, 250)
+        y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
+        y = fc_bn_lrelu(y, 250)
+        y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
+        y = fc_bn_lrelu(y, 250)
+        y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
+        y = tf.nn.softmax(fc(y, out_dim))
+        return y
+
+def simple_mad_generator(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 256)
+        y = fc_bn_relu(y, 512)
+        y_1 = tf.tanh(fc(y, 2))
+        y_2 = tf.tanh(fc(y, 2))
+        y_3 = tf.tanh(fc(y, 2))
+        return y_1, y_2, y_3
+
+def simple_mad_discriminator(x, reuse=True, name = "discriminator"):
+    fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_lrelu(x, 1024)
+        y = fc_lrelu(y, 1024)
+        return fc(y, 4)
+
 def mad_generator(z, reuse=True, name = "generator", training = True):
     bn = partial(batch_norm, is_training=training)
     # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
@@ -319,12 +386,36 @@ def encoder(x, z_dim = 2, reuse=True, name = "encoder"):
         z = z_mu + tf.sqrt(tf.exp(z_log_sigma_sq)) * eps
         return z, z_mu, z_log_sigma_sq
 
+def relu_encoder(x, z_dim = 2, reuse=True, name = "encoder"):
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_relu(x, 512)
+        y = fc_relu(y, 384)
+        y = fc_relu(y, 256)
+        z_mu = fc(y, z_dim)
+        z_log_sigma_sq = fc(y, z_dim)
+        eps = tf.random_normal(shape=tf.shape(z_log_sigma_sq),
+                           mean=0, stddev=1, dtype=tf.float32)
+        z = z_mu + tf.sqrt(tf.exp(z_log_sigma_sq)) * eps
+        return z, z_mu, z_log_sigma_sq
+
+
 def decoder(z, x_dim = 784, reuse=True, name = "decoder"):
     fc_elu = partial(fc, normalizer_fn=None, activation_fn=elu)
     with tf.variable_scope(name, reuse=reuse):
         x = fc_elu(z, 256)
         x = fc_elu(x, 384)
         x = fc_elu(x, 512)
+        x = tf.sigmoid(fc(x, x_dim))
+        x = tf.reshape(x, [-1, 28, 28, 1])
+        return x
+
+def relu_decoder(z, x_dim=784, reuse=True, name="decoder"):
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=lrelu)
+    with tf.variable_scope(name, reuse=reuse):
+        x = fc_relu(z, 256)
+        x = fc_relu(x, 384)
+        x = fc_relu(x, 512)
         x = tf.sigmoid(fc(x, x_dim))
         x = tf.reshape(x, [-1, 28, 28, 1])
         return x

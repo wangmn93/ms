@@ -10,7 +10,9 @@ import models_mnist as models
 import datetime
 import my_utils
 
-
+#apply mad-gan in the latent space of vae
+#idea the latent manifold is simpler than data manifold
+#it's easier to learn each mode by one head of mad-gan
 """ param """
 epoch = 100
 batch_size = 64

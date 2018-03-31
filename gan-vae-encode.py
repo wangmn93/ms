@@ -10,7 +10,10 @@ import models_mnist as models
 import datetime
 import my_utils
 
-
+#modify vae, instead of encode image to mu and sigma
+#encode image to one hot/softmax ?? use aae idea to regularize one hot latent space??
+#then the encoded softmax is muti.. with variable mu and sigma as the latent var for recons...
+#each position of softmax has a mu and a sigma
 """ param """
 epoch = 100
 batch_size = 100
@@ -25,15 +28,26 @@ dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 ''' data '''
 data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,4,5,7]) #range -1 ~ 1
 
-# k=4
-# with tf.variable_scope("gmm", reuse=False):
-#     mus = tf.get_variable("mus", [k,z_dim], initializer=tf.constant_initializer(0), trainable=False)
-#     log_sigma_sqs = tf.get_variable("log_sigma_sqs", [k, z_dim], initializer=tf.constant_initializer(0.001), trainable=False)
-    # mus =  tf.constant([[0.5, 0.5],[-0.5, 0.5],[-0.5,-0.5],[0.5, -0.5]],shape=[4,2],dtype=tf.float32)
-    # log_sigma_sqs = tf.constant([[00.1, 00.1],[00.1, 00.1],[00.1,00.1],[00.1, 00.1]],shape=[4,2], dtype=tf.float32)
+k=4
+
+with tf.variable_scope("gmm", reuse=False):
+    # mus = tf.get_variable("mus", [k, z_dim], initializer=tf.constant_initializer(0))
+    # log_sigma_sqs = tf.get_variable("log_sigma_sqs", [k, z_dim], initializer=tf.constant_initializer(0.001))
+    mus = tf.constant([[0.5, 0.5], [-0.5, 0.5], [-0.5, -0.5], [0.5, -0.5]], shape=[4, 2], dtype=tf.float32)
+    log_sigma_sqs = tf.constant([[-2, -2]]*k, shape=[4, 2], dtype=tf.float32)
+
+
+def get_gmm_sample(size):
+    # shape = (size,)+tf.shape(log_sigma_sqs)
+    # print shape
+    eps = tf.random_normal(shape=(size, k, z_dim), mean=0, stddev=1, dtype=tf.float32)
+    zs = tf.tile(tf.expand_dims(mus, 0), [size, 1, 1]) \
+         + tf.tile(tf.expand_dims(tf.sqrt(tf.exp(log_sigma_sqs)), 0), [size, 1, 1]) * eps
+    return zs
+
 
 """ graphs """
-encoder = models.encoder
+encoder = models.encoder2
 decoder = models.decoder
 discriminator = models.ss_discriminator
 optimizer = tf.train.AdamOptimizer
@@ -43,7 +57,9 @@ real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
 random_z = tf.placeholder(tf.float32, shape=[None, z_dim])
 
 # encoder
-z, z_mu, z_log_sigma_sq = encoder(real, reuse=False)
+softmaxs = encoder(real, reuse=False)
+
+z = tf.matmul(softmaxs,)
 
 #decoder
 x_hat = decoder(z, reuse=False)
@@ -86,7 +102,7 @@ d_var = [var for var in T_vars if var.name.startswith('discriminator')]
 
 # optims
 global_step = tf.Variable(0, name='global_step',trainable=False)
-d_step = optimizer(learning_rate=lr).minimize(loss, var_list=en_var+de_var, global_step=global_step)
+vae_step = optimizer(learning_rate=lr).minimize(loss, var_list=en_var+de_var, global_step=global_step)
 d_2_step = optimizer(learning_rate=0.0002, beta1=0.5).minimize(d_loss, var_list=d_var)
 # g_step = optimizer(learning_rate=lr).minimize(g_loss, var_list=de_var)
 
@@ -166,7 +182,7 @@ def training(max_it, it_offset):
         # for i in range(n_critic):
         real_ipt = (data_pool.batch('img')+1)/2.
         z_ipt = np.random.normal(size=[batch_size, z_dim])
-        _ = sess.run([d_step], feed_dict={real: real_ipt})
+        _ = sess.run([vae_step], feed_dict={real: real_ipt})
         _ = sess.run([d_2_step], feed_dict={real: real_ipt, random_z: z_ipt})
         # _ = sess.run([g_step], feed_dict={random_z: z_ipt})
 

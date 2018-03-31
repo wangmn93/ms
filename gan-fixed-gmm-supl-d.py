@@ -9,7 +9,8 @@ import models_mnist as models
 import datetime
 import my_utils
 
-
+#fix the shape of latent space to a 2d gmm
+#use supplement discriminator/classifier to encourage each mode of gmm to embed different number
 """ param """
 epoch = 100
 batch_size = 64
@@ -17,7 +18,7 @@ lr = 0.0002
 z_dim = 2
 n_critic = 1 #
 n_generator = 1
-gan_type="gan-v-gmm"
+gan_type="gan-fixed-gmm-supl-d"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
@@ -27,22 +28,13 @@ data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,4,5,7])
 """ graphs """
 generator = models.generator
 discriminator = models.ss_discriminator
-classifier = models.multi_c_discriminator3
+classifier = models.multi_c_discriminator3 #4 heads
 optimizer = tf.train.AdamOptimizer
 
 #sample from gmm
-with tf.variable_scope("gmm", reuse=False):
-    mu_1 = tf.get_variable("mean1", [z_dim], initializer=tf.constant_initializer(0))
-    mu_2 = tf.get_variable("mean2", [z_dim], initializer=tf.constant_initializer(0))
-    mu_3 = tf.get_variable("mean3", [z_dim], initializer=tf.constant_initializer(0))
-    mu_4 = tf.get_variable("mean4", [z_dim], initializer=tf.constant_initializer(0))
-    log_sigma_sq1 = tf.get_variable("log_sigma_sq1", [z_dim], initializer=tf.constant_initializer(0.001))
-    log_sigma_sq2 = tf.get_variable("log_sigma_sq2", [z_dim], initializer=tf.constant_initializer(0.001))
-    log_sigma_sq3 = tf.get_variable("log_sigma_sq3", [z_dim], initializer=tf.constant_initializer(0.001))
-    log_sigma_sq4 = tf.get_variable("log_sigma_sq4", [z_dim], initializer=tf.constant_initializer(0.001))
 k = 4
 mus = [[0.5, 0.5],[-0.5, 0.5],[-0.5,-0.5],[0.5, -0.5]]
-cov = [[1 ,0],[0, 1]]
+cov = [[0.1 ,0],[0, 0.1]]
 
 def sample_from_gmm(size, k):
     z = np.random.multivariate_normal(mean=mus[0], cov=cov, size=size//k)
@@ -71,29 +63,23 @@ fake_1 = generator(z1, reuse=False)
 fake_2 = generator(z2)
 fake_3 = generator(z3)
 fake_4 = generator(z4)
+fake = tf.concat([fake_1, fake_2, fake_3, fake_4], 0)
 
 # discriminator
 r_logit = discriminator(real, reuse=False)
-f_logit_1 = discriminator(fake_1)
-f_logit_2 = discriminator(fake_1)
-f_logit_3 = discriminator(fake_1)
-f_logit_4 = discriminator(fake_1)
+f_logit = discriminator(fake)
+
 
 
 #supplement classifier
 c_1 = classifier(fake_1, reuse=False, name="supplement_c")
 c_2 = classifier(fake_2, name="supplement_c")
-c_3 = classifier(fake_2, name="supplement_c")
-c_4 = classifier(fake_2, name="supplement_c")
+c_3 = classifier(fake_3, name="supplement_c")
+c_4 = classifier(fake_4, name="supplement_c")
 
 #discriminator loss
 d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
-d_loss_fake_1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_1, labels=tf.zeros_like(f_logit_1)))
-d_loss_fake_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_2, labels=tf.zeros_like(f_logit_2)))
-d_loss_fake_3 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_3, labels=tf.zeros_like(f_logit_3)))
-d_loss_fake_4 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_4, labels=tf.zeros_like(f_logit_4)))
-d_loss_fake = d_loss_fake_1 + d_loss_fake_2 + d_loss_fake_3 + d_loss_fake_4
-
+d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.zeros_like(f_logit)))
 d_loss = d_loss_real + d_loss_fake
 
 
@@ -110,12 +96,8 @@ c_loss_4 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_4, onehot_lab
 c_loss = c_loss_1 + c_loss_2 + c_loss_3 + c_loss_4
 
 #generator loss
-g_loss_1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_1, labels=tf.ones_like(f_logit_1)))
-g_loss_2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_2, labels=tf.ones_like(f_logit_2)))
-g_loss_3 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_3, labels=tf.ones_like(f_logit_3)))
-g_loss_4 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit_4, labels=tf.ones_like(f_logit_4)))
-
-g_loss = g_loss_1 + g_loss_2 + g_loss_3 + g_loss_4 + c_loss
+g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.ones_like(f_logit)))
+g_loss += c_loss
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()
@@ -129,7 +111,7 @@ global_step = tf.Variable(0, name='global_step',trainable=False)
 d_step = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=d_var, global_step=global_step)
 c_step = optimizer(learning_rate=lr, beta1=0.5).minimize(c_loss, var_list=c_var)
 g_step = optimizer(learning_rate=lr, beta1=0.5).minimize(g_loss, var_list=g_var)
-# g2_step = optimizer(learning_rate=lr).minimize(g2_loss, var_list=g_var)
+
 """ train """
 ''' init '''
 # session
@@ -200,7 +182,6 @@ def training(max_it, it_offset):
         for i in range(n_critic):
             real_ipt = data_pool.batch('img')
             _ = sess.run([d_step],feed_dict=create_feed(size=batch_size, additional_items={real: real_ipt}))
-
 
 
         # train G and C

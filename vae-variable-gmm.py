@@ -9,7 +9,9 @@ import models_mnist as models
 import datetime
 import my_utils
 
-
+#use a gmm to fit the latent space of vae
+#driven by a binary discriminator->tell from real and fake
+#and a supplement discriminator to push gmm apart
 """ param """
 epoch = 100
 batch_size = 100
@@ -17,7 +19,7 @@ lr = 1e-3
 z_dim = 2
 n_critic = 1 #
 n_generator = 1
-gan_type="vae-gan-gmm"
+gan_type="vae-variable-gmm"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 

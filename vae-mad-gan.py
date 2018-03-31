@@ -2,7 +2,6 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
 
-import utils
 import traceback
 import numpy as np
 import tensorflow as tf
@@ -14,33 +13,29 @@ import my_utils
 """ param """
 epoch = 100
 batch_size = 100
-lr = 1e-3
+lr = 1e-4
 z_dim = 2
 n_critic = 1 #
 n_generator = 1
-gan_type="vae"
+gan_type="vae-mad-gan"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[0,4,5,7]) #range -1 ~ 1
-
-# k=4
-# with tf.variable_scope("gmm", reuse=False):
-#     mus = tf.get_variable("mus", [k,z_dim], initializer=tf.constant_initializer(0), trainable=False)
-#     log_sigma_sqs = tf.get_variable("log_sigma_sqs", [k, z_dim], initializer=tf.constant_initializer(0.001), trainable=False)
-    # mus =  tf.constant([[0.5, 0.5],[-0.5, 0.5],[-0.5,-0.5],[0.5, -0.5]],shape=[4,2],dtype=tf.float32)
-    # log_sigma_sqs = tf.constant([[00.1, 00.1],[00.1, 00.1],[00.1,00.1],[00.1, 00.1]],shape=[4,2], dtype=tf.float32)
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[1,5,9]) #range -1 ~ 1
 
 """ graphs """
 encoder = models.encoder
 decoder = models.decoder
-discriminator = models.ss_discriminator
+mad_discriminator = models.simple_mad_discriminator
+mad_generator = models.simple_mad_generator
+discriminator = models.discriminator_for_latent
 optimizer = tf.train.AdamOptimizer
 
 # inputs
 real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
 random_z = tf.placeholder(tf.float32, shape=[None, z_dim])
+random_z_2 = tf.placeholder(tf.float32, shape=[None, z_dim])
 
 # encoder
 z, z_mu, z_log_sigma_sq = encoder(real, reuse=False)
@@ -57,8 +52,6 @@ recon_loss = -tf.reduce_sum(
             axis=1
         )
 recon_loss = tf.reduce_mean(recon_loss)
-# recon_loss = tf.losses.mean_squared_error(labels=real, predictions=x_hat)
-# recon_loss = tf.reduce_mean(recon_loss)
 
 # Latent loss
 # Kullback Leibler divergence: measure the difference between two distributions
@@ -68,27 +61,45 @@ latent_loss = tf.reduce_mean(latent_loss)
 loss = recon_loss + latent_loss
 
 #GAN
-fake = decoder(random_z)
-r_logit = discriminator(real, reuse=False)
-f_logit = discriminator(fake)
+onehot_labels_zero = tf.one_hot(indices=tf.zeros(batch_size, tf.int32), depth=4)
+onehot_labels_one = tf.one_hot(indices=tf.ones(batch_size, tf.int32), depth=4)
+onehot_labels_two = tf.one_hot(indices=tf.cast(tf.scalar_mul(2,tf.ones(batch_size)), tf.int32), depth=4)
+onehot_labels_three = tf.one_hot(indices=tf.cast(tf.scalar_mul(3,tf.ones(batch_size)), tf.int32), depth=4)
 
-d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
-d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.zeros_like(f_logit)))
-d_loss = d_loss_real + d_loss_fake
+# generator
+fake1,fake2,fake3 = mad_generator(random_z_2, reuse=False)
 
-# g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.ones_like(f_logit)))
+# discriminator
+r_logit = mad_discriminator(z, reuse=False)
+f1_logit = mad_discriminator(fake1)
+f2_logit = mad_discriminator(fake2)
+f3_logit = mad_discriminator(fake3)
+
+D_loss_real = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=r_logit, onehot_labels=onehot_labels_zero))
+D_loss_fake1 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f1_logit, onehot_labels=onehot_labels_one))
+D_loss_fake2 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f2_logit, onehot_labels=onehot_labels_two))
+D_loss_fake3 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f3_logit, onehot_labels=onehot_labels_three))
+d_loss = D_loss_real + D_loss_fake1 + D_loss_fake2 + D_loss_fake3
+
+#generator loss
+g1_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f1_logit, onehot_labels=onehot_labels_zero))
+g2_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f2_logit, onehot_labels=onehot_labels_zero))
+g3_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f3_logit, onehot_labels=onehot_labels_zero))
+g_loss = g1_loss + g2_loss + g3_loss
+
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()
 en_var = [var for var in T_vars if var.name.startswith('encoder')]
 de_var = [var for var in T_vars if var.name.startswith('decoder')]
 d_var = [var for var in T_vars if var.name.startswith('discriminator')]
+g_var = [var for var in T_vars if var.name.startswith('generator')]
 
 # optims
 global_step = tf.Variable(0, name='global_step',trainable=False)
-d_step = optimizer(learning_rate=lr).minimize(loss, var_list=en_var+de_var, global_step=global_step)
-d_2_step = optimizer(learning_rate=0.0002, beta1=0.5).minimize(d_loss, var_list=d_var)
-# g_step = optimizer(learning_rate=lr).minimize(g_loss, var_list=de_var)
+vae_step = optimizer(learning_rate=lr).minimize(loss, var_list=en_var+de_var, global_step=global_step)
+d_step = optimizer(learning_rate=0.0002, beta1=0.5).minimize(d_loss, var_list=d_var)
+g_step = optimizer(learning_rate=0.0002, beta1=0.5).minimize(g_loss, var_list=g_var)
 
 """ train """
 ''' init '''
@@ -101,40 +112,27 @@ saver = tf.train.Saver(max_to_keep=5)
 # summary writer
 # Send summary statistics to TensorBoard
 tf.summary.scalar('Total_loss', loss)
-tf.summary.scalar('Recon_loss', recon_loss)
 tf.summary.scalar('D_loss', d_loss)
-# tf.summary.scalar('G_loss', g_loss)
-
-# onehot_labels_zero = tf.one_hot(indices=tf.zeros(batch_size, tf.int32), depth=4)
-# onehot_labels_one = tf.one_hot(indices=tf.ones(batch_size, tf.int32), depth=4)
-# onehot_labels_two = tf.one_hot(indices=tf.cast(tf.scalar_mul(2,tf.ones(batch_size)), tf.int32), depth=4)
-# onehot_labels_three = tf.one_hot(indices=tf.cast(tf.scalar_mul(3,tf.ones(batch_size)), tf.int32), depth=4)
-#
-# eps2 = tf.random_normal(shape=tf.shape(log_sigma_sqs),
-#                        mean=0, stddev=1, dtype=tf.float32)
-# cs2 = mus + tf.sqrt(tf.exp(log_sigma_sqs)) * eps2
-# z1 = tf.matmul(onehot_labels_zero,mus)
-# z2 = tf.matmul(onehot_labels_one,mus)
-# z3 = tf.matmul(onehot_labels_two,mus)
-# z4 = tf.matmul(onehot_labels_three,mus)
+tf.summary.scalar('G_loss', g_loss)
 
 images_form_de = decoder(random_z)
-# images_form_c2 = decoder(z2)
-# images_form_c3 = decoder(z3)
-# images_form_c4 = decoder(z4)
+z1, z2, z3 = mad_generator(random_z_2, training=False)
+images_form_c1 = decoder(z1)
+images_form_c2 = decoder(z2)
+images_form_c3 = decoder(z3)
 
 tf.summary.image('real', real, 12)
 tf.summary.image('recon', x_hat, 12)
 
 
-tf.summary.image('Generator_image_1', images_form_de, 12)
-# tf.summary.image('Generator_image_2', images_form_c2, 12)
-# tf.summary.image('Generator_image_3', images_form_c3, 12)
-# tf.summary.image('Generator_image_4', images_form_c4, 12)
+tf.summary.image('Generator_image', images_form_de, 12)
+tf.summary.image('Generator_image_1', images_form_c1, 12)
+tf.summary.image('Generator_image_2', images_form_c2, 12)
+tf.summary.image('Generator_image_3', images_form_c3, 12)
 
-# tf.summary.histogram('c1 points', z1)
-# tf.summary.histogram('c2 points', z2)
-# tf.summary.histogram('c3 points', z3)
+tf.summary.histogram('c1 points', z1)
+tf.summary.histogram('c2 points', z2)
+tf.summary.histogram('c3 points', z3)
 # tf.summary.histogram('c4 points', z4)
 
 merged = tf.summary.merge_all()
@@ -152,9 +150,10 @@ max_it = epoch * batch_epoch
 def sample_once(it):
     rows = 10
     columns = 10
-    feed = {random_z: np.random.normal(size=[rows * columns, z_dim])}
-    list_of_generators = [images_form_de]  # used for sampling images
-    list_of_names = ['it%d-de.jpg' % it]
+    feed = {random_z: np.random.normal(size=[rows * columns, z_dim]),
+            random_z_2: np.random.normal(size=[rows * columns, z_dim])}
+    list_of_generators = [images_form_de, images_form_c1, images_form_c2, images_form_c3]  # used for sampling images
+    list_of_names = ['it%d-de.jpg' % it, 'it%d-c1.jpg' % it, 'it%d-c2.jpg' % it, 'it%d-c3.jpg' % it,]
     save_dir = dir + "/sample_imgs"
     my_utils.sample_and_save(sess=sess, list_of_generators=list_of_generators, feed_dict=feed,
                              list_of_names=list_of_names, save_dir=save_dir)
@@ -166,15 +165,17 @@ def training(max_it, it_offset):
         # for i in range(n_critic):
         real_ipt = (data_pool.batch('img')+1)/2.
         z_ipt = np.random.normal(size=[batch_size, z_dim])
-        _ = sess.run([d_step], feed_dict={real: real_ipt})
-        _ = sess.run([d_2_step], feed_dict={real: real_ipt, random_z: z_ipt})
+        _ = sess.run([vae_step], feed_dict={real: real_ipt})
+        _ = sess.run([d_step], feed_dict={real: real_ipt, random_z_2: z_ipt})
         # _ = sess.run([g_step], feed_dict={random_z: z_ipt})
 
 
         if it%10 == 0 :
             real_ipt = (data_pool.batch('img')+1)/2.
-            # z_ipt =  np.random.normal(size=[batch_size, z_dim])
-            summary = sess.run(merged, feed_dict={real: real_ipt, random_z: np.random.normal(size=[batch_size, z_dim])})
+            z_ipt =  np.random.normal(size=[batch_size, z_dim])
+            summary = sess.run(merged, feed_dict={real: real_ipt,
+                                                  random_z:z_ipt,
+                                                  random_z_2: z_ipt})
             writer.add_summary(summary, it)
 
     var = raw_input("Continue training for %d iterations?" % max_it)

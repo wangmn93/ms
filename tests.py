@@ -149,3 +149,18 @@ if 0:
         plt.imshow(img_2, cmap='gray')
 
         plt.show()
+
+if 1:
+    p = tf.constant([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 0, 1]],
+                           shape=[5, 4], dtype=tf.float32)
+    def cond_entropy(y):
+        # y1 = -y * F.log(y)
+        # y2 = F.sum(y1) / batchsize
+        # return y2
+        y1 = -y * tf.log(y)
+        print y1.shape
+        y2 = tf.reduce_mean(y1, axis=0)
+        print y2.shape
+        return y2
+
+    cond_entropy(p)

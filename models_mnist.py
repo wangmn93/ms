@@ -32,6 +32,22 @@ def generator(z, dim=64, reuse=True, training=True, name="generator"):
         img = tf.tanh(dconv(y, 1, 5, 2))
         return img
 
+def generator_m(z, heads=10, dim=64, reuse=True, training=True, name="generator"):
+    bn = partial(batch_norm, is_training=training)
+    dconv_bn_relu = partial(dconv, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 1024)
+        y = fc_bn_relu(y, 7 * 7 * dim * 2)
+        y = tf.reshape(y, [-1, 7, 7, dim * 2])
+        y = dconv_bn_relu(y, dim * 2, 5, 2)
+        img_sets = []
+        for _ in range(heads):
+            img_sets.append(tf.sigmoid(dconv(y, 1, 5, 2)))
+
+        return img_sets
+
 def mad_generator2(z, dim=64, reuse=True, training=True, name="generator"):
     bn = partial(batch_norm, is_training=training)
     dconv_bn_relu = partial(dconv, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
@@ -46,6 +62,54 @@ def mad_generator2(z, dim=64, reuse=True, training=True, name="generator"):
         img2 = tf.tanh(dconv(y, 1, 5, 2))
         img3 = tf.tanh(dconv(y, 1, 5, 2))
         return img, img2, img3
+
+def cnn_classifier(x, name="classifier", reuse=True, keep_prob=1.):
+    conv_relu = partial(conv, normalizer_fn=None, activation_fn=relu, biases_initializer=None)
+    max_pool = partial(tf.layers.max_pooling2d, pool_size=[2, 2], strides=2)
+    fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu, biases_initializer=None)
+    # fc(y, out_dim)
+    with tf.variable_scope(name, reuse=reuse):
+        y = conv_relu(x,32,5,2)
+        y = max_pool(y)
+        y = conv_relu(y, 64, 5, 2)
+        y = max_pool(y)
+        y = fc_relu(y,1024)
+        y = tf.nn.dropout(y, keep_prob)
+        y = tf.nn.softmax(fc(y,10))
+        return y
+
+def cnn_classifier_2(x,keep_prob, name="classifier", reuse=True):
+    with tf.variable_scope(name, reuse=reuse):
+        # Convolutional Layer #1
+        conv1 = tf.layers.conv2d(
+            inputs=x,
+            filters=32,
+            kernel_size=[5, 5],
+            padding="same",
+            activation=tf.nn.relu)
+
+        # Pooling Layer #1
+        pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+
+        # Convolutional Layer #2 and Pooling Layer #2
+        conv2 = tf.layers.conv2d(
+            inputs=pool1,
+            filters=64,
+            kernel_size=[5, 5],
+            padding="same",
+            activation=tf.nn.relu)
+        pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+
+        # Dense Layer
+        pool2_flat = tf.reshape(pool2, [-1, 7 * 7 * 64])
+        dense = tf.layers.dense(inputs=pool2_flat, units=1024, activation=tf.nn.relu)
+        dropout = tf.layers.dropout(
+            inputs=dense, rate=1-keep_prob)
+
+        # Logits Layer
+        logits = tf.layers.dense(inputs=dropout, units=10)
+        y = tf.nn.softmax(logits)
+        return y
 
 #mimic
 def generator2(z, dim=64, reuse=True, training=True):
@@ -92,17 +156,23 @@ def discriminator(img, dim=64, reuse=True, training=True, name= 'discriminator')
         logit = fc(y, 1)
         return logit
 
-def discriminator_m(img, dim=64, reuse=True, training=True, name= 'discriminator'):
+def discriminator_m(img, out_dim=10, dim=64, reuse=True, training=True, name= 'discriminator', stddev=0.05):
     bn = partial(batch_norm, is_training=training)
     conv_bn_lrelu = partial(conv, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
     fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
 
     with tf.variable_scope(name, reuse=reuse):
-        y = lrelu(conv(img, 1, 5, 2))
+        y = img
+        # y = img + tf.random_normal(shape=tf.shape(img), mean=0, stddev=stddev, dtype=tf.float32)
+        y = lrelu(conv(y, 1, 5, 2))
+        # y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
         y = conv_bn_lrelu(y, dim, 5, 2)
+        # y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
         y = fc_bn_lrelu(y, 1024)
-        logit = fc(y, 3)
-        return logit
+        # y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
+        logits = fc(y, out_dim)
+        softmax = tf.nn.softmax(logits)
+        return softmax, logits
 
 def discriminator_wgan_gp(img, dim=64, reuse=True, training=True):
     conv_ln_lrelu = partial(conv, normalizer_fn=ln, activation_fn=lrelu, biases_initializer=None)
@@ -209,18 +279,72 @@ def ss_generator(z, reuse=True, name = "generator", training = True):
         y = tf.reshape(y, [-1, 28, 28, 1])
         return y
 
-def cat_generator(z, reuse=True, name = "generator", training = True):
+def ss_generator_m(z, heads=10,reuse=True, name = "generator", training = True):
     bn = partial(batch_norm, is_training=training)
-    fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu_2, biases_initializer=None)
-    fc_bn_lrelu_2 = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+    # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
     with tf.variable_scope(name, reuse=reuse):
-        y = fc_bn_lrelu(z, 500)
-        y = fc_bn_lrelu(y, 500)
-        y = fc_bn_lrelu_2(y, 1000)
+        y = fc_bn_relu(z, 1024)
+        y = fc_bn_relu(y, 1024)
+        img_sets = []
+        for _ in range(heads):
+            out = tf.sigmoid(fc(y, 784))
+            out = tf.reshape(out, [-1, 28, 28, 1])
+            img_sets.append(out)
+        return img_sets
+
+def ss_generator_2(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 1024)
         y = tf.sigmoid(fc(y, 784))
         y = tf.reshape(y, [-1, 28, 28, 1])
         return y
 
+def ss_generator_2_2heads(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    # fc_relu = partial(fc, normalizer_fn=None, activation_fn=relu)
+    fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_relu(z, 1024)
+        y1 = tf.sigmoid(fc(y, 784))
+        y1 = tf.reshape(y1, [-1, 28, 28, 1])
+        y2 = tf.sigmoid(fc(y, 784))
+        y2 = tf.reshape(y2, [-1, 28, 28, 1])
+        return y1,y2
+
+def cat_generator(z, reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu_2, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_lrelu(z, 500)
+        y = fc_bn_lrelu(y, 500)
+        y = fc_bn_lrelu(y, 1000)
+        y = tf.sigmoid(fc(y, 784))
+        y = tf.reshape(y, [-1, 28, 28, 1])
+        return y
+
+# def cat_conv_generator(z, reuse=True, name = "generator", training = True):
+#     bn = partial(batch_norm, is_training=training)
+#     dconv_bn_relu = partial(dconv, normalizer_fn=None, activation_fn=None)
+#     fc_bn_relu = partial(fc, normalizer_fn=bn, activation_fn=relu, biases_initializer=None)
+#
+#
+#     fc_lrelu = partial(fc, normalizer_fn=None, activation_fn=lrelu_2)
+#     # fc_bn_lrelu_2 = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+#     with tf.variable_scope(name, reuse=reuse):
+#         y = fc_lrelu(z, 8 * 8 * 96)
+#         tf.layers.conv2d_transpose(
+#             y,
+#             filters,
+#             kernel_size=[2,2])
+#         y = fc_bn_lrelu(y, 500)
+#         y = fc_bn_lrelu(y, 1000)
+#         y = tf.sigmoid(fc(y, 784))
+#         y = tf.reshape(y, [-1, 28, 28, 1])
+#         return y
 
 def cat_generator_3heads(z, reuse=True, name = "generator", training = True):
     bn = partial(batch_norm, is_training=training)
@@ -236,9 +360,82 @@ def cat_generator_3heads(z, reuse=True, name = "generator", training = True):
         y_1 = tf.reshape(y_1, [-1, 28, 28, 1])
         y_2 = tf.reshape(y_2, [-1, 28, 28, 1])
         y_3 = tf.reshape(y_3, [-1, 28, 28, 1])
-        return y_1, y_2, y_3
+        return [y_1, y_2, y_3]
 
-def cat_discriminator(z, out_dim=3, reuse=True, name = "discriminator", training = True, stddev=0.3):
+def cat_conv_discriminator(x, out_dim=10, reuse=True, name = "discriminator", training = True, stddev=0.05):
+    with tf.variable_scope(name, reuse=reuse):
+        # Convolutional Layer #1
+        conv1 = tf.layers.conv2d(
+            inputs=x,
+            filters=32,
+            kernel_size=[5, 5],
+            padding="same",
+            activation=lrelu_2)
+
+        # Pooling Layer #1
+        pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[3, 3], strides=2)
+
+        # Convolutional Layer #2
+        conv2 = tf.layers.conv2d(
+            inputs=pool1,
+            filters=64,
+            kernel_size=[3, 3],
+            padding="same",
+            activation=lrelu_2)
+
+        # Convolutional Layer #3
+        conv3 = tf.layers.conv2d(
+            inputs=conv2,
+            filters=64,
+            kernel_size=[3, 3],
+            padding="same",
+            activation=lrelu_2)
+
+        #and Pooling Layer  #2
+        pool2 = tf.layers.max_pooling2d(inputs=conv3, pool_size=[3, 3], strides=2)
+
+        # Convolutional Layer #4
+        conv4 = tf.layers.conv2d(
+            inputs=pool2,
+            filters=128,
+            kernel_size=[3, 3],
+            padding="same",
+            activation=lrelu_2)
+
+        # Convolutional Layer #5
+        conv5 = tf.layers.conv2d(
+            inputs=conv4,
+            filters=10,
+            kernel_size=[1, 1],
+            padding="same",
+            activation=lrelu_2)
+
+        # Dense Layer
+        dense = lrelu_2(fc(conv5,128))
+        # conv5_flat = tf.reshape(conv5, [-1, 7 * 7 * 64])
+        # dense = tf.layers.dense(inputs=conv5_flat, units=128, activation=lrelu_2)
+
+        # Logits Layer
+        logits = tf.layers.dense(inputs=dense, units=out_dim)
+        y = tf.nn.softmax(logits)
+        return y, logits
+
+def cat_generator_m(z, heads=10,reuse=True, name = "generator", training = True):
+    bn = partial(batch_norm, is_training=training)
+    fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu_2, biases_initializer=None)
+    fc_bn_lrelu_2 = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
+    with tf.variable_scope(name, reuse=reuse):
+        y = fc_bn_lrelu(z, 500)
+        y = fc_bn_lrelu(y, 500)
+        y = fc_bn_lrelu_2(y, 1000)
+        out_put_sets = []
+        for _ in range(heads):
+            y_1 = tf.sigmoid(fc(y, 784))
+            y_1 = tf.reshape(y_1, [-1, 28, 28, 1])
+            out_put_sets.append(y_1)
+        return out_put_sets
+
+def cat_discriminator(z, out_dim=10, reuse=True, name = "discriminator", training = True, stddev=0.3):
     bn = partial(batch_norm, is_training=training)
     fc_bn_lrelu = partial(fc, normalizer_fn=bn, activation_fn=lrelu_2, biases_initializer=None)
     # fc_bn_lrelu_2 = partial(fc, normalizer_fn=bn, activation_fn=lrelu, biases_initializer=None)
@@ -254,8 +451,9 @@ def cat_discriminator(z, out_dim=3, reuse=True, name = "discriminator", training
         y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
         y = fc_bn_lrelu(y, 250)
         y = y + tf.random_normal(shape=tf.shape(y), mean=0, stddev=stddev, dtype=tf.float32)
-        y = tf.nn.softmax(fc(y, out_dim))
-        return y
+        logits = fc(y, out_dim)
+        y_out = tf.nn.softmax(logits)
+        return y_out,logits
 
 def simple_mad_generator(z, reuse=True, name = "generator", training = True):
     bn = partial(batch_norm, is_training=training)

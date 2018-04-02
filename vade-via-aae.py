@@ -24,7 +24,7 @@ dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[1,8,4]) #range -1 ~ 1
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[3,4,5]) #range -1 ~ 1
 
 def gmm(z):
     with tf.variable_scope("gmm", reuse=False):

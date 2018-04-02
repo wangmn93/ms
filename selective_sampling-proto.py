@@ -12,7 +12,7 @@ import my_utils
 
 
 """ param """
-epoch = 200
+epoch = 100
 batch_size = 128
 batch_size2 = 64
 lr = 0.0002
@@ -31,7 +31,7 @@ tf.set_random_seed(1234)
 # ckpt_dir =
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[1, 8])
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[4, 9])
 
 """ graphs """
 generator = models.ss_generator
@@ -47,6 +47,7 @@ z = tf.placeholder(tf.float32, shape=[None, z_dim])
 # generator
 fake = generator(z, reuse=False, name="g1")
 fake2 = generator(z, reuse=False, name="g2")
+# fake3 = generator(z, reuse=False, name="g2")
 
 # discriminator
 r_logit = discriminator(real, reuse=False, name="d1")

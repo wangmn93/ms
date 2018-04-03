@@ -23,8 +23,8 @@ n_generator = 1
 gan_type="mad-gan"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-np.random.seed(0)
-tf.set_random_seed(1234)
+# np.random.seed(0)
+# tf.set_random_seed(1234)
 # restore = False
 # ckpt_dir =
 
@@ -77,7 +77,7 @@ g3_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=f3_logit, onehot
 
 # g1_loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_c, labels=tf.zeros_like(f1_c)))
 # g2_loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_c, labels=tf.ones_like(f2_c)))
-g_loss = g1_loss + g2_loss + g3_loss
+g_loss = g1_loss + g2_loss + g3_loss # + D_loss_fake1 + D_loss_fake2 + D_loss_fake3
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()

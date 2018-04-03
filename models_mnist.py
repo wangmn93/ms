@@ -78,7 +78,7 @@ def cnn_classifier(x, name="classifier", reuse=True, keep_prob=1.):
         y = tf.nn.softmax(fc(y,10))
         return y
 
-def cnn_classifier_2(x,keep_prob, name="classifier", reuse=True):
+def cnn_classifier_2(x,keep_prob, out_dim=10,name="classifier", reuse=True):
     with tf.variable_scope(name, reuse=reuse):
         # Convolutional Layer #1
         conv1 = tf.layers.conv2d(
@@ -107,9 +107,9 @@ def cnn_classifier_2(x,keep_prob, name="classifier", reuse=True):
             inputs=dense, rate=1-keep_prob)
 
         # Logits Layer
-        logits = tf.layers.dense(inputs=dropout, units=10)
+        logits = tf.layers.dense(inputs=dropout, units=out_dim)
         y = tf.nn.softmax(logits)
-        return y
+        return y,logits
 
 #mimic
 def generator2(z, dim=64, reuse=True, training=True):
@@ -362,7 +362,7 @@ def cat_generator_3heads(z, reuse=True, name = "generator", training = True):
         y_3 = tf.reshape(y_3, [-1, 28, 28, 1])
         return [y_1, y_2, y_3]
 
-def cat_conv_discriminator(x, out_dim=10, reuse=True, name = "discriminator", training = True, stddev=0.05):
+def cat_conv_discriminator(x, out_dim=10, reuse=True, name = "discriminator", stddev=0.05):
     with tf.variable_scope(name, reuse=reuse):
         # Convolutional Layer #1
         conv1 = tf.layers.conv2d(

@@ -24,7 +24,7 @@ dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 ''' data '''
-data_pool = my_utils.getMNISTDatapool(batch_size, keep=[4,3,5,9])
+data_pool = my_utils.getMNISTDatapool(batch_size, keep=[1,3,5,7])
 
 """ graphs """
 generator = partial(models.ss_generator_m, heads=4)
@@ -53,6 +53,24 @@ d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_lo
 d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.zeros_like(f_logit)))
 d_loss = d_loss_real + d_loss_fake
 
+#marginal entropy
+def mar_entropy(y):
+    # y1 = F.sum(y, axis=0) / batchsize
+    # y2 = F.sum(-y1 * F.log(y1))
+    # return y2
+    y1 = tf.reduce_mean(y,axis=0)
+    y2=tf.reduce_sum(-y1*tf.log(y1))
+    return y2
+
+#conditional entropy
+def cond_entropy(y):
+    # y1 = -y * F.log(y)
+    # y2 = F.sum(y1) / batchsize
+    # return y2
+    y1=-y*tf.log(y)
+    y2 = tf.reduce_sum(y1)/batch_size
+    return y2
+
 #supplement classifier
 c_1 = classifier(fake_1, reuse=False, name="supplement_c")
 c_2 = classifier(fake_2, name="supplement_c")
@@ -69,7 +87,11 @@ c_loss_1 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_1, onehot_lab
 c_loss_2 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_2, onehot_labels=onehot_labels_one))
 c_loss_3 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_3, onehot_labels=onehot_labels_two))
 c_loss_4 = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=c_4, onehot_labels=onehot_labels_three))
-c_loss = c_loss_1 + c_loss_2 + c_loss_3 + c_loss_4
+
+r_c = classifier(real, name="supplement_c")
+real_y = tf.nn.softmax(r_c)
+fake_y = tf.nn.softmax(tf.concat([c_1,c_2,c_3,c_4],axis=0))
+c_loss = c_loss_1 + c_loss_2 + c_loss_3 + c_loss_4 -1 * (mar_entropy(real_y) - cond_entropy(real_y) + cond_entropy(fake_y))
 
 #generator loss
 g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logit, labels=tf.ones_like(f_logit)))
@@ -83,9 +105,9 @@ c_var = [var for var in T_vars if var.name.startswith('supplement_c')]
 
 # optims
 global_step = tf.Variable(0, name='global_step',trainable=False)
-d_step = optimizer(learning_rate=lr, beta1=0.5).minimize(d_loss, var_list=d_var, global_step=global_step)
-c_step = optimizer(learning_rate=lr, beta1=0.5).minimize(c_loss, var_list=c_var+g_var)
-g_step = optimizer(learning_rate=lr, beta1=0.5).minimize(g_loss, var_list=g_var)
+d_step = optimizer(learning_rate=lr).minimize(d_loss, var_list=d_var, global_step=global_step)
+c_step = optimizer(learning_rate=lr).minimize(c_loss, var_list=c_var+g_var)
+g_step = optimizer(learning_rate=lr).minimize(g_loss, var_list=g_var)
 
 """ train """
 ''' init '''
@@ -152,9 +174,10 @@ def training(max_it, it_offset):
 
         # train G and C
         for j in range(n_generator):
+            real_ipt = (data_pool.batch('img') + 1.) / 2.
             z_ipt = np.random.normal(size=[batch_size, z_dim])
             _ = sess.run([g_step],feed_dict={z: z_ipt})
-            _ = sess.run([c_step], feed_dict={z: z_ipt})
+            _ = sess.run([c_step], feed_dict={z: z_ipt, real:real_ipt})
 
         if it%10 == 0 :
             real_ipt = (data_pool.batch('img')+1.)/2.

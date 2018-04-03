@@ -16,7 +16,7 @@ from functools import partial
 epoch = 100
 batch_size = 100
 lr = 2e-4
-beta1 = 0.9
+beta1 = 0.5
 z_dim = 128
 n_critic = 1 #
 n_generator = 1
@@ -26,7 +26,7 @@ dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 ''' data '''
 # keep = range(10)
-keep = [0,1,2,3,4,5]
+keep = [1,3,5]
 data_pool = my_utils.getMNISTDatapool(batch_size, keep=keep) #range -1 ~ 1
 # data_pool_2 =  my_utils.getMNISTDatapool(batch_size, [0])
 # data_pool_3 =  my_utils.getMNISTDatapool(batch_size, [3])
@@ -34,7 +34,7 @@ data_pool = my_utils.getMNISTDatapool(batch_size, keep=keep) #range -1 ~ 1
 
 """ graphs """
 generator = partial(models.generator_m, heads=1)
-discriminator = partial(models.cat_conv_discriminator,out_dim=len(keep))
+discriminator = partial(models.cnn_classifier_2,out_dim=len(keep))
 optimizer = tf.train.AdamOptimizer
 
 # inputs
@@ -63,8 +63,8 @@ def cond_entropy(y):
     return y2
 
 fake = generator(random_z, reuse=False)[0]
-real_y,_= discriminator(real, name='classifier', reuse=False)
-fake_y,_ = discriminator(fake, name='classifier')
+real_y,_= discriminator(real, name='classifier', reuse=False, keep_prob=.5)
+fake_y,_ = discriminator(fake, name='classifier', keep_prob=.5)
 
 #discriminator loss
 d_loss = -1 * (mar_entropy(real_y) - cond_entropy(real_y) + cond_entropy(fake_y))  # Equation (7) upper
@@ -109,7 +109,7 @@ x = tf.placeholder(tf.float32, [None, 784], name='x')
 # y_ = tf.placeholder(tf.float32, [None, 10], name='y_')
 # keep_prob = tf.placeholder(tf.float32)
 x_image = tf.reshape(x, [-1, 28, 28, 1])
-y,_ = discriminator(x_image, name='classifier', training=False)
+y,_ = discriminator(x_image, name='classifier', keep_prob=1.)
 # true_y = tf.argmax(y_, 1)
 predict_y = tf.argmax(y,1 )
 # correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
@@ -137,7 +137,7 @@ print('Tensorboard dir: '+logdir)
 
 ''' initialization '''
 sess.run(tf.global_variables_initializer())
-# d_saver.restore(sess, "results/cat-gan-20180401-160253/checkpoint/model.ckpt")
+# saver.restore(sess, "results/cat-gan-20180402-140657/checkpoint/model.ckpt")
 ''' train '''
 batch_epoch = len(data_pool) // (batch_size * n_critic)
 max_it = epoch * batch_epoch

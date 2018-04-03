@@ -23,30 +23,30 @@ n_generator = 1
 gan_type="experiment"
 dir="results/"+gan_type+"-"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-np.random.seed(0)
-tf.set_random_seed(1234)
+# np.random.seed(0)
+# tf.set_random_seed(1234)
 
 # restore = False
 # ckpt_dir =
 
 ''' data '''
 # keep = range(10)
-keep = [0,1,2,3,4,5]
+keep = [1,3,5,7]
 data_pool = my_utils.getMNISTDatapool(batch_size, keep=keep)
 
 """ graphs """
-heads = 6
-port_to_learn = [0, 1,2,3,4,5] #max number should be less than len(keep)
+heads = 4
+port_to_learn = [0,1,2,3] #max number should be less than len(keep)
+classifier = partial(models.cat_conv_discriminator,out_dim=len(keep))
 generator = partial(models.ss_generator_m, heads=heads)
 discriminator = models.ss_discriminator
-classifier = partial(models.cat_conv_discriminator,out_dim=len(keep))
+
 optimizer = tf.train.AdamOptimizer
 
 
 # inputs
 real = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
 z = tf.placeholder(tf.float32, shape=[None, z_dim])
-
 
 # generator
 fake_sets = generator(z, reuse=False)
@@ -58,24 +58,21 @@ r_logit = discriminator(real, reuse=False)
 f_logit_set = []
 f_c_set = []
 
+
 for i in range(len(fake_sets)):
     f_logit_set.append(discriminator(fake_sets[i]))
     if i == 0:
         # f_c_set.append(models.cnn_classifier_2(x=fake_sets[i],reuse=False, keep_prob=1.))
-        p,_ = classifier(fake_sets[i], name='classifier', reuse=False)
+        p, _ = models.cnn_classifier_2(x=fake_sets[i],reuse=False, keep_prob=1., out_dim=len(keep))
+        # p,_ = classifier(fake_sets[i], name='classifier', reuse=False)
         f_c_set.append(p)
     else:
         # f_c_set.append(models.cnn_classifier_2(x=fake_sets[i], keep_prob=1.))
-        p, _ = classifier(fake_sets[i], name='classifier')
+        p, _ = models.cnn_classifier_2(x=fake_sets[i], keep_prob=1., out_dim=len(keep))
+        # p, _ = classifier(fake_sets[i], name='classifier')
         f_c_set.append(p)
 #supplement discriminator
 
-
-
-# f1_c = models.cnn_classifier_2(x=fake,keep_prob=1., reuse=False)#create model
-# f2_c = models.cnn_classifier_2(x=fake2, keep_prob=1.)#create model
-# f1_c = discriminator(fake, reuse=False, name="d2")
-# f2_c = discriminator(fake2, name="d2")
 
 #discriminator loss
 D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logit, labels=tf.ones_like(r_logit)))
@@ -104,25 +101,9 @@ def compute_c_loss(logits,number_to_learn):
     return loss
 
 c_loss = compute_c_loss(f_c_set, port_to_learn)
-g_loss += 0.5*c_loss + 0.1*mar_entropy2(f_c_set)
-# g_loss += 0.5*c_loss
-# g_loss += beta*c_loss# + mar_entropy2(f_c_set)
-# onehot_labels_zero = tf.one_hot(indices=tf.zeros(batch_size, tf.int32), depth=10)
-# onehot_labels_one = tf.one_hot(indices=tf.ones(batch_size, tf.int32), depth=10)
-# onehot_labels_two = tf.one_hot(indices=tf.cast(tf.scalar_mul(2,tf.ones(batch_size)), tf.int32), depth=10)
-# onehot_labels_three = tf.one_hot(indices=tf.cast(tf.scalar_mul(3,tf.ones(batch_size)), tf.int32), depth=10)
-# D2_loss_f1 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=f1_c, labels=onehot_labels_zero))
-# D2_loss_f2 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=f2_c, labels=onehot_labels_one))
-# d2_loss = D2_loss_f1 + D2_loss_f2
-
-#generator loss
-# g_loss = 0
-
-# g1_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f1_logit, labels=tf.ones_like(f1_logit)))
-# g2_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=f2_logit, labels=tf.ones_like(f2_logit)))
-# g1_loss += beta*D2_loss_f1
-# g2_loss += beta*D2_loss_f2
-
+# g_loss += c_loss
+g_loss += 0.5*c_loss
+# g_loss += beta*c_loss + 0.1*mar_entropy2(f_c_set)
 
 # trainable variables for each network
 T_vars = tf.trainable_variables()
@@ -149,6 +130,7 @@ c_saver = tf.train.Saver(var_list=c_var)
 # Send summary statistics to TensorBoard
 tf.summary.scalar('G_loss', g_loss)
 tf.summary.scalar('Discriminator_loss', d_loss)
+tf.summary.scalar('C_loss', c_loss)
 # tf.summary.scalar('Supplement_Discriminator_loss', d2_loss)
 # images_form_g1, images_form_g2 = generator(z, training= False)
 # image_sets = [images_form_g1, images_form_g2]
@@ -174,9 +156,11 @@ sess.run(tf.global_variables_initializer())
 # c_saver.restore(sess, "results/cat-gan-20180401-160253/checkpoint/model.ckpt") #all numbers
 # c_saver.restore(sess,"results/cat-gan-20180401-203608/checkpoint/model.ckpt") #1,3,6
 # c_saver.restore(sess,"results/cat-gan-20180401-210244/checkpoint/model.ckpt") #1,3,4,6
-# c_saver.restore(sess,"results/cat-gan-20180402-083936/checkpoint/model.ckpt") #3,5
-# c_saver.restore(sess, "results/cat-gan-20180402-101436/checkpoint/model.ckpt") #4,9
-c_saver.restore(sess, "results/cat-gan-20180402-110332/checkpoint/model.ckpt") #0,1,2,3,4,5
+# c_saver.restore(sess,"results/cat-gan-20180402-083936/checkpoint/model.ckpt") #3,5 conv dis
+# c_saver.restore(sess, "results/cat-gan-20180402-101436/checkpoint/model.ckpt") #4,9 conv dis
+# c_saver.restore(sess, "results/cat-gan-20180402-110332/checkpoint/model.ckpt") #0,1,2,3,4,5
+# c_saver.restore(sess, "results/cat-gan-20180402-140657/checkpoint/model.ckpt") #1,3,5,7
+c_saver.restore(sess, "results/cat-gan-20180402-170735/checkpoint/model.ckpt") #1,3,5,7 cnn arch from supervised
 
 ''' train '''
 batch_epoch = len(data_pool) // (batch_size * n_critic)
@@ -212,9 +196,11 @@ def training(max_it, it_offset):
             _ = sess.run([G_step], feed_dict={z: z_ipt})
             # if it>3000:
             #     if it<10000:
-            #         _ = sess.run([c_step], feed_dict={z: z_ipt})
+            #     _ = sess.run([c_step], feed_dict={z: z_ipt})
             #     else:
             #         _ = sess.run([c_aug_step], feed_dict={z: z_ipt})
+        if it>0 and it%5000 == 0:
+            sample_once(it)#sample every 5000 it
 
         if it%10 == 0 :
             real_ipt = (data_pool.batch('img')+1.)/2.
